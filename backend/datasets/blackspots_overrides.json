@@ -1,0 +1,47 @@
+{
+ "vad-03": {
+  "lat": 22.32196,
+  "lon": 73.17555,
+  "note": "OSM way 'Pandya Flyover' (primary, bridge=yes), Fatehgunj"
+ },
+ "vad-04": {
+  "lat": 22.22045,
+  "lon": 73.18736,
+  "note": "Paired NH-48 river bridges south of Vadodara beside Jambuva village (OSM ref=NH48, bridge=yes)"
+ },
+ "rjt-02": {
+  "lat": 22.2884,
+  "lon": 70.77115,
+  "note": "Closest approach of OSM 'University Road' and '150 Foot Ring Road' (11 m) = Indira Circle"
+ },
+ "ahd-03": {
+  "lat": 23.0208,
+  "lon": 72.47912,
+  "note": "Nominatim: 'Vakil Saheb Flyover, Ghatlodiya Taluka'"
+ },
+ "ahd-09": {
+  "lat": 23.03244,
+  "lon": 72.63136,
+  "note": "Approximate: Nominatim 'Bapunagar Police Station' (crossroads lies beside it)"
+ },
+ "ahd-10": {
+  "lat": 22.98387,
+  "lon": 72.624,
+  "note": "Nominatim: 'Jashodanagar Char Rasta, BRTS Station, Khokhra'"
+ },
+ "ahd-14": {
+  "lat": 23.03892,
+  "lon": 72.63969,
+  "note": "Nominatim: 'Thakkarbapa Nagar Flyover'"
+ },
+ "ahd-13": {
+  "lat": 23.06482,
+  "lon": 72.64297,
+  "note": "Photon/OSM: 'Naroda Patia Circle' (highway=primary)"
+ },
+ "ahd-08": {
+  "lat": 23.02594,
+  "lon": 72.6725,
+  "note": "Nominatim result lies on OSM 'Odhav Ring Road Flyover' (trunk)"
+ }
+}

@@ -1,0 +1,12 @@
+# conda env create -f environment.yml && conda activate saferoute
+name: saferoute
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy>=1.26
+  - scipy>=1.11
+  - pillow>=10
+  - fastapi>=0.110
+  - uvicorn>=0.29
+  - pytest>=8
