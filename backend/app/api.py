@@ -7,7 +7,8 @@ from functools import lru_cache
 import numpy as np
 
 from . import model as M
-from .config import CITIES, REGIONS
+from .config import CITIES, REGIONS, DATA_DIR
+import json
 from .engine import RouteError, get_graph
 from .planner import Planner
 from .search import available_regions, search
@@ -31,12 +32,29 @@ def nearest_city(lat, lon):
     return min(CITIES, key=lambda c: (CITIES[c]["center"][0] - lat) ** 2 + (CITIES[c]["center"][1] - lon) ** 2)
 
 
+@lru_cache(maxsize=4)
+def _metadata(region):
+    return json.loads((DATA_DIR / region / "meta.json").read_text(encoding="utf-8"))
+
+
+def number(value, name, low, high, exclusive=False):
+    try:
+        if isinstance(value, bool):
+            raise ValueError()
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ApiError(400, f"{name} must be a number")
+    if not math.isfinite(result) or result < low or (result >= high if exclusive else result > high):
+        raise ApiError(400, f"{name} is outside the supported range")
+    return result
+
+
 def cities():
     ready = set(available_regions())
     out = []
     for key, c in CITIES.items():
         reg = c["region"]
-        meta = get_graph(reg).meta if reg in ready else None
+        meta = _metadata(reg) if reg in ready else None
         out.append({"id": key, "name": c["name"], "region": reg, "center": c["center"], "zoom": c["zoom"],
                     "stats": c["stats"], "ready": reg in ready,
                     "network_km": meta["km"] if meta else None, "coverage": meta["coverage"] if meta else None})
@@ -48,6 +66,8 @@ def do_search(q: str, city: str | None):
 
 
 def reverse(lat: float, lon: float):
+    lat = number(lat, "lat", -90, 90)
+    lon = number(lon, "lon", -180, 180)
     reg = region_of(lat, lon)
     if not reg:
         return {"name": f"{lat:.5f}, {lon:.5f}", "road": "", "area": "", "region": None, "city": None}
@@ -88,9 +108,12 @@ def nearest_area(reg, lat, lon):
 
 
 def route(body: dict):
+    if not isinstance(body, dict):
+        raise ApiError(400, "Request body must be a JSON object")
     try:
         o, dst = body["origin"], body["destination"]
-        o_lat, o_lon, d_lat, d_lon = float(o["lat"]), float(o["lon"]), float(dst["lat"]), float(dst["lon"])
+        o_lat, o_lon = number(o["lat"], "origin.lat", -90, 90), number(o["lon"], "origin.lon", -180, 180)
+        d_lat, d_lon = number(dst["lat"], "destination.lat", -90, 90), number(dst["lon"], "destination.lon", -180, 180)
     except (KeyError, TypeError, ValueError):
         raise ApiError(400, "origin and destination {lat, lon} are required")
     r1, r2 = region_of(o_lat, o_lon), region_of(d_lat, d_lon)
@@ -99,14 +122,18 @@ def route(body: dict):
     if r1 != r2:
         raise ApiError(422, f"Inter-city trips aren't supported yet ({REGIONS[r1]['name']} → {REGIONS[r2]['name']}). Pick both points in the same city.")
     mode = body.get("mode", "car")
-    hour = float(body.get("hour", 9))
-    if not (0 <= hour < 24):
-        raise ApiError(400, "hour must be in [0, 24)")
+    if mode not in ("car", "two_wheeler", "walk"):
+        raise ApiError(400, "Choose car, two_wheeler or walk")
+    hour = number(body.get("hour", 9), "hour", 0, 24, exclusive=True)
+    safety = number(body.get("safety_weight", 0.7), "safety_weight", 0, 1)
+    detour = number(body.get("max_detour", 0.25), "max_detour", 0, 1)
+    analysis = body.get("include_analysis", True)
+    if not isinstance(analysis, bool):
+        raise ApiError(400, "include_analysis must be true or false")
     try:
         return Planner(get_graph(r1)).plan(
             o_lat, o_lon, d_lat, d_lon, mode=mode, hour=hour,
-            safety_weight=float(body.get("safety_weight", 0.7)),
-            max_detour=float(body.get("max_detour", 0.25)))
+            safety_weight=safety, max_detour=detour, alternatives=analysis)
     except RouteError as ex:
         raise ApiError(422, str(ex))
 
@@ -144,7 +171,7 @@ def network(region: str, mode: str, hour_bucket: float):
 def network_handler(region: str, mode: str = "car", hour: float = 21):
     if mode not in ("car", "two_wheeler", "walk"):
         raise ApiError(400, "bad mode")
-    return network(region, mode, float(math.floor(float(hour))))
+    return network(region, mode, float(math.floor(number(hour, "hour", 0, 24, exclusive=True))))
 
 
 def methodology():

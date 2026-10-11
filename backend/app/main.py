@@ -1,5 +1,5 @@
 """FastAPI application.  Run:  uvicorn app.main:app --reload  (from backend/)"""
-from fastapi import FastAPI, Query, Request
+from fastapi import Body, FastAPI, Query, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -8,7 +8,7 @@ from . import api
 from .config import FRONTEND_DIR
 
 app = FastAPI(title="SafeRoute Gujarat", version="1.0",
-              description="Multi-objective, safety-aware routing for Surat, Ahmedabad, Gandhinagar, Vadodara and Rajkot.")
+              description="Safety-focused route planning for Surat, Ahmedabad, Gandhinagar, Vadodara and Rajkot.")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
@@ -33,8 +33,9 @@ def reverse(lat: float, lon: float):
 
 
 @app.post("/api/route")
-async def route(request: Request):
-    return api.route(await request.json())
+def route(body: dict = Body(...)):
+    # FastAPI runs synchronous handlers in its worker thread pool.
+    return api.route(body)
 
 
 @app.get("/api/layers/{region}")

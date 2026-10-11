@@ -23,6 +23,11 @@ export class MapView {
     this.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     this.map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
     this.map.on("style.load", () => this._installOverlays());
+    // A style replacement can finish through styledata; restore overlays once
+    // the new style is ready even when the provider omits style.load.
+    this.map.on("styledata", () => {
+      if (this.map.isStyleLoaded() && !this.map.getSource("routes") && !this.installing) this._installOverlays();
+    });
     // overlays only need the style, not every tile, so don't wait for "load"
     this.ready = new Promise((res) => this.map.once("style.load", res));
     this.map.on("click", (e) => {
@@ -38,12 +43,14 @@ export class MapView {
       this.map.on("mouseleave", l, () => { this.map.getCanvas().style.cursor = ""; });
     }
     this.pins = { origin: null, destination: null };
+
   }
 
   setTheme(theme) {
     if (theme === this.theme) return;
     this.theme = theme;
-    this.map.setStyle(STYLES[theme]);
+    this.map.setStyle(STYLES[theme], { diff: false });
+
   }
 
   _colors() {
@@ -54,6 +61,9 @@ export class MapView {
   }
 
   _installOverlays() {
+
+    if (this.installing || this.map.getLayer("route-runs")) return;
+    this.installing = true;
     const m = this.map, c = this._colors();
     const before = m.getStyle().layers.find((l) => l.type === "symbol")?.id;
     for (const [id, data] of Object.entries(this.data)) {
@@ -87,6 +97,7 @@ export class MapView {
         "circle-stroke-color": c.casing, "circle-stroke-width": 2 },
     });
     poi("cctv", "#6250d6", 4); poi("police", "#2a78d6", 6); poi("hospital", "#e34948", 5);
+    this.installing = false;
   }
 
   _set(id, data) {
@@ -96,6 +107,7 @@ export class MapView {
   }
 
   drawRoutes(routes, order, selected, colors) {
+
     const feats = order.filter((k) => routes[k]).map((k) => ({
       type: "Feature", properties: { key: k, selected: k === selected, color: colors[k] },
       geometry: { type: "LineString", coordinates: routes[k].geometry },
@@ -153,8 +165,8 @@ export class MapView {
       morth: "MoRTH NH blackspot (official)", incident: "Documented fatal crash" }[b.category] || b.category;
     const html = `<div class="pop"><h4>${esc(b.name)}</h4><div class="pk">${esc(cat)} · ${esc(b.period)}</div>
       <div class="pstats"><div><b>${b.accidents ?? "–"}</b><span>crashes</span></div><div><b>${b.deaths ?? "–"}</b><span>deaths</span></div>
-      <div><b>×${(b.risk_multiplier ?? 1).toFixed(1)}</b><span>risk weight</span></div></div>
-      <div class="pk">Risk weight from Empirical-Bayes: model predicted ${b.n_pred_per_year ?? "–"}/yr, observed ${b.n_obs_per_year ?? "n/a"}/yr.</div>
+      </div>
+      <div class="pk">Historical records for this location. Current conditions may differ.</div>
       <div class="pk" style="margin-top:6px">Source: <a href="${esc(b.source_url)}" target="_blank" rel="noopener">${esc(b.source)}</a></div></div>`;
     new maplibregl.Popup({ offset: 18, maxWidth: "300px" }).setLngLat([b.lon, b.lat]).setHTML(html).addTo(this.map);
   }

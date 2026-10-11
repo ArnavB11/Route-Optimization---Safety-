@@ -339,3 +339,47 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 @media (forced-colors: active) {
   .route-card.sel { outline: 2px solid CanvasText; }
 }
+/* Simple planning, with details available when needed. */
+:root { --radius: 22px; }
+.brand { padding-top: 20px; padding-bottom: 12px; }
+.brand h1 { font-size: 20px; letter-spacing: -.6px; }
+.brand p { margin-top: 3px; color: var(--ink-2); }
+.brand-mark { border-radius: 14px; width: 42px; height: 42px; }
+.field { background: var(--surface-2); border-radius: 12px; }
+.field input { min-height: 46px; }
+.modes { margin-top: 16px; }
+.trip-options { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.trip-options summary, .route-details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; padding: 8px 0; }
+#trip-summary { float: right; font-size: 11px; color: var(--ink-2); }
+.planner-actions { display: flex; gap: 8px; margin-top: 12px; }
+.primary-btn { flex: 1; border: 0; border-radius: 999px; background: var(--accent); color: white; min-height: 44px; font-weight: 650; }
+.primary-btn:hover { filter: brightness(.94); }
+.text-btn { border: 1px solid var(--border); border-radius: 999px; background: var(--surface); padding: 10px 18px; color: var(--accent-ink); }
+.text-btn:hover { background: var(--accent-wash); }
+.route-card { border-radius: 16px; padding: 16px; }
+.rc-time { font-size: 27px; letter-spacing: -.8px; }
+.rc-facts { gap: 8px; }
+.rc-facts .fact:nth-child(n+3) { display: none; }
+.empty-state { padding-top: 28px; }
+.empty-state h3 { font-size: 22px; letter-spacing: -.5px; }
+.empty-state p { max-width: 310px; margin-inline: auto; }
+.example { text-align: left; border-radius: 14px; padding: 14px; }
+.headline { border-radius: 14px; }
+.route-details { border-bottom: 1px solid var(--border); margin-bottom: 16px; padding-bottom: 8px; }
+.share-btn { width: 100%; margin-top: 18px; }
+.about-intro { font-size: 28px; line-height: 1.25; letter-spacing: -.8px; margin: 28px 0 20px; }
+.drawer p { line-height: 1.75; font-size: 14px; }
+@media (max-width: 760px) {
+  .panel { height: 59dvh; }
+  .panel.expanded { height: calc(100dvh - 50px); }
+  .panel.collapsed { height: 210px; }
+  .sheet-handle { border: 0; padding: 0; min-height: 6px; }
+  .brand { padding-top: 8px; padding-bottom: 6px; }
+  .risk-legend { bottom: calc(59dvh + 10px); }
+  body:has(.panel.expanded) .risk-legend { display: none; }
+  body:has(.panel.collapsed) .risk-legend { bottom: 220px; }
+  .panel-foot { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

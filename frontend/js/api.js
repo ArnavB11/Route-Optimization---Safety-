@@ -25,7 +25,7 @@ export async function photon(q, bbox) {
   const lat = (s + n) / 2, lon = (w + e) / 2;
   const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=6&lat=${lat}&lon=${lon}&bbox=${w},${s},${e},${n}`;
   try {
-    const r = await fetch(url);
+    const r = await fetch(url, { signal: AbortSignal.timeout(4500) });
     if (!r.ok) return [];
     const j = await r.json();
     return j.features.map((f) => ({

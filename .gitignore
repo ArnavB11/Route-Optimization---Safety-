@@ -5,3 +5,5 @@ __pycache__/
 backend/data/raw/
 .DS_Store
 .vscode/
+
+tmp/

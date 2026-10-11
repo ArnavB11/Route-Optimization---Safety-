@@ -20,7 +20,7 @@ def safety_score(risk_per_km: float, ref_per_km: float) -> float:
 
 
 def score_label(s: float) -> str:
-    return "Very safe" if s >= 82 else "Safe" if s >= 72 else "Moderate" if s >= 60 else "Risky" if s >= 45 else "High risk"
+    return "Lower risk" if s >= 72 else "Moderate" if s >= 60 else "Higher risk"
 
 
 class Planner:
@@ -74,14 +74,13 @@ class Planner:
             lam = lo
             safe = g.astar(src, dst, mode, *weights(lam), h_coef(lam)) if lam > 0 else fast
 
-        # 3) shortest distance (reference)
-        shortest = g.astar(src, dst, mode, L.astype(float), np.zeros(lg.n_trans), 1.0)
-
         routes = {
             "fastest": self.summary(fast, c, mode),
             "safest": self.summary(safe, c, mode),
-            "shortest": self.summary(shortest, c, mode),
         }
+        if alternatives:
+            shortest = g.astar(src, dst, mode, L.astype(float), np.zeros(lg.n_trans), 1.0)
+            routes["shortest"] = self.summary(shortest, c, mode)
         routes["safest"]["lambda"] = lam
 
         # Pareto front (time vs risk) sampled over λ; the "balanced" route is

@@ -1,15 +1,15 @@
 import { api, photon } from "./api.js";
-import { breakdownBar, columns, paretoChart, riskProfile } from "./charts.js";
-import { MapView } from "./map.js";
+import { breakdownBar } from "./charts.js";
+import { MapView } from "./map.js?v=20261011";
 import {
   $, $$, ICON, cssVar, debounce, esc, fmtDist, fmtDuration, fmtHour, kindIcon, riskLevel, signed, store,
 } from "./util.js";
 
 // ---------------------------------------------------------------------------
 const ROUTE_META = {
-  safest: { name: "Safest", css: "--r-safest", blurb: "Lowest crash & security risk within your detour limit" },
-  balanced: { name: "Balanced", css: "--r-balanced", blurb: "Best risk reduction per extra minute" },
-  fastest: { name: "Fastest", css: "--r-fastest", blurb: "Standard shortest-time route" },
+  safest: { name: "Safer choice", css: "--r-safest", blurb: "Lower estimated risk within your extra-time limit" },
+  balanced: { name: "Less detour", css: "--r-balanced", blurb: "Best risk reduction per extra minute" },
+  fastest: { name: "Fastest", css: "--r-fastest", blurb: "Shortest estimated travel time" },
 };
 const MODE_LABEL = { car: "car", two_wheeler: "two-wheeler", walk: "walking" };
 
@@ -73,8 +73,10 @@ async function init() {
   // restore a shared link
   const o = params.get("o"), d = params.get("d");
   if (params.get("mode")) setMode(params.get("mode"), false);
-  if (params.get("h")) state.hour = +params.get("h");
-  if (params.get("s")) state.safety = +params.get("s");
+  for (const [key, field, max] of [["h", "hour", 23.5], ["s", "safety", 1], ["detour", "detour", 1]]) {
+    const value = Number(params.get(key));
+    if (params.has(key) && Number.isFinite(value) && value >= 0 && value <= max) state[field] = value;
+  }
   syncControls();
   if (o && d) {
     const [olat, olon] = o.split(",").map(Number), [dlat, dlon] = d.split(",").map(Number);
@@ -111,6 +113,7 @@ async function switchCity(id, fly = true) {
 
 async function loadRegionLayers(reg) {
   if (!state.layerData[reg]) state.layerData[reg] = await api.layers(reg);
+  if (reg !== region()) return;
   const L = state.layerData[reg];
   map.setPois(L);
   map.setBlackspots(L.blackspots);
@@ -127,7 +130,7 @@ function bindControls() {
   // search fields
   for (const role of ["origin", "destination"]) {
     const field = $(`.field[data-role="${role}"]`), input = $("input", field), list = $(".suggest", field);
-    let items = [], active = -1;
+    let items = [], active = -1, revision = 0;
     const show = (rows) => {
       items = rows; active = -1;
       if (!rows.length) { list.innerHTML = `<li class="s-empty">No matches in ${esc(cityName())}. Try another name or click the map.</li>`; list.classList.add("open"); return; }
@@ -139,24 +142,29 @@ function bindControls() {
     const pick = (i) => {
       const r = items[i];
       if (!r) return;
+      revision++;
       list.classList.remove("open");
       input.value = r.name;
       setPoint(role, { lat: r.lat, lon: r.lon, label: r.name }).then(() => { maybePlan(); });
     };
     const run = debounce(async () => {
+      const ticket = revision, searchCity = state.city;
       const q = input.value.trim();
       if (q.length < 2) { list.classList.remove("open"); return; }
       const m = q.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/);
       if (m) return show([{ name: `${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}`, kind: "Coordinates", lat: +m[1], lon: +m[2] }]);
-      const { results } = await api.search(q, state.city);
+      try {
+      const { results } = await api.search(q, searchCity);
+      if (ticket !== revision || searchCity !== state.city) return;
       let rows = results.map((r) => ({ ...r, sub: cityName() }));
       if (rows.length < 4) {
         const ext = await photon(q, state.regions[region()].bbox);
         for (const e of ext) if (!rows.some((r) => r.name.toLowerCase() === e.name.toLowerCase())) rows.push(e);
       }
-      show(rows.slice(0, 8));
+      if (ticket === revision && searchCity === state.city && document.activeElement === input) show(rows.slice(0, 8));
+      } catch (e) { if (ticket === revision) toast("Search unavailable. Choose a point on the map or try again."); }
     }, 180);
-    input.addEventListener("input", run);
+    input.addEventListener("input", () => { revision++; items = []; list.classList.remove("open"); state[role] = null; map.setPin(role, null); clearRoute(); renderEmpty(); run(); });
     input.addEventListener("focus", () => { if (input.value.trim().length >= 2) run(); });
     input.addEventListener("blur", () => setTimeout(() => list.classList.remove("open"), 120));
     input.addEventListener("keydown", (ev) => {
@@ -175,6 +183,15 @@ function bindControls() {
     $("#in-destination").value = state.destination?.label || "";
     map.setPin("origin", state.origin); map.setPin("destination", state.destination);
     maybePlan();
+  };
+  $("#btn-plan").onclick = () => {
+    if (!state.origin || !state.destination) return toast("Choose a starting point and destination first.");
+    plan();
+  };
+  $("#btn-clear").onclick = () => {
+    clearRoute(); state.origin = state.destination = null;
+    for (const role of ["origin", "destination"]) { $("#in-" + role).value = ""; map.setPin(role, null); }
+    history.replaceState(null, "", location.pathname); renderEmpty();
   };
   $("#btn-locate").onclick = locate;
   $$(".mode").forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
@@ -220,12 +237,14 @@ function syncControls() {
   s.style.setProperty("--fill", `${state.safety * 100}%`);
   const dark = state.hour >= 19.5 || state.hour < 6;
   $("#hour-val").innerHTML = `${fmtHour(state.hour)} · ${dark ? "night" : state.hour >= 18 ? "dusk" : "day"}`;
+  $("#trip-summary").textContent = `${fmtHour(state.hour)} · up to ${Math.round(state.detour * 100)}% extra`;
   const sv = state.safety;
   $("#safety-val").textContent = sv >= 0.85 ? "Maximum safety" : sv >= 0.6 ? "Prefer safety" : sv >= 0.35 ? "Balanced" : sv > 0.05 ? "Prefer speed" : "Speed only";
   $$("#in-detour button").forEach((b) => b.classList.toggle("on", +b.dataset.v === state.detour));
 }
 
 function setMode(mode, doPlan = true) {
+  if (!Object.hasOwn(MODE_LABEL, mode)) return;
   state.mode = mode;
   $$(".mode").forEach((b) => { const on = b.dataset.mode === mode; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
   if (doPlan) { replan(); refreshNetwork(); }
@@ -237,8 +256,8 @@ function applyTheme(theme, persist) {
   if (persist) { store.set("sr-theme-v", theme); try { localStorage.setItem("sr-theme", theme); } catch (e) { /* ignore */ } }
   $("#btn-theme").innerHTML = theme === "dark" ? ICON.sun : ICON.moon;
   if (map) {
-    map.setTheme(theme);
     map.map.once("style.load", () => { if (state.result) drawResult(false); if (state.layerData[region()]) map.setPois(state.layerData[region()]); });
+    map.setTheme(theme);
   }
   if (state.result) renderResult();
 }
@@ -254,7 +273,8 @@ async function setPoint(role, pt, skipLabel, noFly) {
     const c = cityForRegion(reg, pt.lat, pt.lon);
     if (c.id !== state.city) { state.city = c.id; renderCityChips(); }
   }
-  state[role] = { lat: pt.lat, lon: pt.lon, label: pt.label || "" };
+  const point = { lat: pt.lat, lon: pt.lon, label: pt.label || "" };
+  state[role] = point;
   map.setPin(role, pt);
   const input = role === "origin" ? $("#in-origin") : $("#in-destination");
   if (pt.label) input.value = pt.label;
@@ -262,8 +282,9 @@ async function setPoint(role, pt, skipLabel, noFly) {
     input.value = "Locating…";
     try {
       const r = await api.reverse(pt.lat, pt.lon);
-      state[role].label = r.name; input.value = r.name;
-    } catch (e) { input.value = `${pt.lat.toFixed(5)}, ${pt.lon.toFixed(5)}`; }
+      if (state[role] !== point) return false;
+      point.label = r.name; input.value = r.name;
+    } catch (e) { if (state[role] !== point) return false; point.label = `${pt.lat.toFixed(5)}, ${pt.lon.toFixed(5)}`; input.value = point.label; }
   }
   if (!noFly && (!state.origin || !state.destination)) map.flyTo(pt.lat, pt.lon, Math.max(map.map.getZoom(), 14));
   return true;
@@ -304,12 +325,13 @@ async function plan() {
   state.pending?.abort();
   const ctl = new AbortController();
   state.pending = ctl;
+  $("#results").setAttribute("aria-busy", "true");
   if (!state.result) $("#results").innerHTML = `<div class="loading"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
   else $("#results").style.opacity = 0.55;
   try {
     const res = await api.route({
       origin: state.origin, destination: state.destination, mode: state.mode, hour: state.hour,
-      safety_weight: state.safety, max_detour: state.detour,
+      safety_weight: state.safety, max_detour: state.detour, include_analysis: false,
     }, ctl.signal);
     if (ctl.signal.aborted) return;
     const first = !state.result;
@@ -325,7 +347,7 @@ async function plan() {
     map.clearRoutes();
     $("#results").innerHTML = `<div class="empty-state">${ICON.warn}<h3>Couldn't plan that trip</h3><p>${esc(e.message)}</p></div>`;
   } finally {
-    $("#results").style.opacity = 1;
+    if (state.pending === ctl) { $("#results").style.opacity = 1; $("#results").setAttribute("aria-busy", "false"); }
   }
 }
 
@@ -333,12 +355,12 @@ function updateUrl() {
   const p = new URLSearchParams({
     city: state.city, o: `${state.origin.lat.toFixed(5)},${state.origin.lon.toFixed(5)}`,
     d: `${state.destination.lat.toFixed(5)},${state.destination.lon.toFixed(5)}`,
-    mode: state.mode, h: state.hour, s: state.safety,
+    mode: state.mode, h: state.hour, s: state.safety, detour: state.detour,
   });
   history.replaceState(null, "", `?${p}`);
 }
 
-function clearRoute() { state.result = null; map?.clearRoutes(); $("#risk-legend").hidden = !map?.visible.risk; }
+function clearRoute() { state.pending?.abort(); state.pending = null; state.result = null; $("#results").style.opacity = 1; $("#results").setAttribute("aria-busy", "false"); map?.clearRoutes(); $("#risk-legend").hidden = !map?.visible.risk; }
 
 function routeKeys() {
   const r = state.result.routes;
@@ -372,7 +394,7 @@ function renderEmpty() {
   const ex = EXAMPLES[c?.region] || [];
   $("#results").innerHTML = `<div class="empty-state">${ICON.shield}
     <h3>Plan a safer trip in ${esc(c?.name || "Gujarat")}</h3>
-    <p>Search two places, click the map, or use your location. We compare the usual fastest route with one that avoids crash blackspots, risky junctions and dark roads.</p>
+    <p>Choose your start and destination. Compare the fastest route with a choice that considers known crash locations, junctions and lighting.</p>
     ${ex.length ? `<div class="examples">${ex.map((e, i) => `<button class="example" data-i="${i}">${ICON.route}<span><b>${esc(e.from.label)} → ${esc(e.to.label)}</b><small>${esc(e.note)}</small></span></button>`).join("")}</div>` : ""}
   </div>`;
   $$(".example").forEach((b) => (b.onclick = async () => {
@@ -391,7 +413,7 @@ const EXAMPLES = {
     { from: { lat: 23.0225, lon: 72.5714, label: "Ahmedabad centre" }, to: { lat: 23.2156, lon: 72.6369, label: "Gandhinagar" }, hour: 23, mode: "two_wheeler", note: "Late-night two-wheeler commute to the capital" },
   ],
   surat: [
-    { from: { lat: 21.1673, lon: 72.7853, label: "SVNIT campus" }, to: { lat: 21.1418, lon: 72.7562, label: "Dumas Road" }, hour: 21, note: "The project's validation trip (Phase 4)" },
+    { from: { lat: 21.1673, lon: 72.7853, label: "SVNIT campus" }, to: { lat: 21.1418, lon: 72.7562, label: "Dumas Road" }, hour: 21, note: "An evening trip from campus" },
     { from: { lat: 21.2049, lon: 72.8410, label: "Surat Railway Station" }, to: { lat: 21.1702, lon: 72.9500, label: "Kadodara" }, hour: 22, mode: "two_wheeler", note: "Towards the Kadodara blackspot at night" },
   ],
   vadodara: [
@@ -405,7 +427,7 @@ const EXAMPLES = {
 function headline(res) {
   const c = res.comparison, r = res.routes;
   if (c.same_route) {
-    return `<div class="headline same">${ICON.shield}<div><b>The fastest route is already the safest option</b> for ${MODE_LABEL[res.mode]} travel at ${fmtHour(res.hour)}.</div></div>`;
+    return `<div class="headline same">${ICON.shield}<div><b>One route fits both your preferences</b> for ${MODE_LABEL[res.mode]} travel at ${fmtHour(res.hour)}.</div></div>`;
   }
   const mins = Math.round(c.time_delta_s / 60);
   const extra = [];
@@ -416,7 +438,7 @@ function headline(res) {
     const bm = Math.round((r.balanced.time_s - r.fastest.time_s) / 60);
     bal = ` The <b>balanced</b> route cuts risk by ${Math.round(100 * (1 - r.balanced.risk / r.fastest.risk))}% ${bm > 0 ? `for +${bm} min` : "at no extra time"}.`;
   }
-  return `<div class="headline">${ICON.shield}<div><b>Safest route: ${mins > 0 ? `+${mins} min` : "no extra time"}, ${Math.round(c.risk_reduction_pct)}% lower risk</b>${extra.length ? " · " + extra.join(" · ") : ""}.${bal}${c.detour_capped ? ` <span style="color:var(--ink-2)">(Limited by your ${Math.round(c.max_detour * 100)}% detour cap.)</span>` : ""}</div></div>`;
+  return `<div class="headline">${ICON.shield}<div><b>Safer choice: ${mins > 0 ? `+${mins} min` : "no extra time"}, ${Math.round(c.risk_reduction_pct)}% lower estimated risk</b>${extra.length ? " · " + extra.join(" · ") : ""}.${bal}${c.detour_capped ? ` <span style="color:var(--ink-2)">(Limited by your ${Math.round(c.max_detour * 100)}% detour cap.)</span>` : ""}</div></div>`;
 }
 
 function scoreRing(score, label) {
@@ -436,7 +458,7 @@ function card(k, res) {
     : `${fmtDist(r.distance_m)} · <span class="${dT > 0.5 ? "up" : ""}">${signed(dT, 0, " min")}</span> · <span class="${dR < -1 ? "down" : ""}">${signed(dR, 0, "%")} risk</span>`;
   const facts = [];
   if (r.blackspots.length) facts.push(`<span class="fact warn"><i class="sdot" style="background:var(--st-critical)"></i>${r.blackspots.length} blackspot${r.blackspots.length > 1 ? "s" : ""}</span>`);
-  else facts.push(`<span class="fact">${ICON.shield}No known blackspots</span>`);
+  else facts.push(`<span class="fact">${ICON.shield}No mapped blackspots</span>`);
   if (res.is_dark) facts.push(`<span class="fact">${ICON.bulb}${r.exposure.unlit_km.toFixed(1)} km poorly lit</span>`);
   facts.push(`<span class="fact">${ICON.junction}${r.exposure.uncontrolled_junctions} uncontrolled junctions</span>`);
   facts.push(`<span class="fact">${ICON.turnR}${r.exposure.right_turns} right turns</span>`);
@@ -456,18 +478,22 @@ function renderResult() {
   const sel = res.routes[state.selected];
   $("#results").innerHTML = headline(res) + keys.map((k) => card(k, res)).join("") + `
     <div class="tabs" role="tablist">
-      ${["overview", "directions", "analysis"].map((t) => `<button class="tab ${state.tab === t ? "on" : ""}" data-t="${t}" role="tab">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
-    </div><div id="tab-body"></div>
-    <p class="note">Scores compare risk per km with the average road a ${MODE_LABEL[res.mode]} trip in this city uses (score 70 = average). Computed in ${res.stats.compute_ms} ms.</p>`;
+      ${["overview", "directions"].map((t) => `<button class="tab ${state.tab === t ? "on" : ""}" data-t="${t}" role="tab" aria-selected="${state.tab === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
+    </div><div id="tab-body"></div><button class="share-btn text-btn" id="btn-share">Copy trip link</button>
+    <p class="note">Safety and travel times are estimates, based on available road data. Conditions can change.</p>`;
   $$(".route-card").forEach((c) => {
     c.onclick = () => select(c.dataset.k);
     c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(c.dataset.k); } };
   });
   $$(".tab").forEach((t) => (t.onclick = () => { state.tab = t.dataset.t; renderResult(); }));
+  $("#btn-share").onclick = async () => {
+    try { await navigator.clipboard.writeText(location.href); toast("Trip link copied"); }
+    catch { toast("Copy the address from your browser to share this trip."); }
+  };
   const body = $("#tab-body");
   if (state.tab === "overview") renderOverview(body, sel, res);
   else if (state.tab === "directions") renderDirections(body, sel);
-  else renderAnalysis(body, res);
+
 }
 
 function renderOverview(el, r, res) {
@@ -478,11 +504,11 @@ function renderOverview(el, r, res) {
   el.innerHTML = `
     <div class="tiles">
       ${tile("Safety score", `${r.score.toFixed(0)}<small style="font-size:13px;color:var(--ink-2)">/100</small>`, isF ? r.label : `${signed(r.score - f.score, 0)} vs fastest`, isF ? null : r.score >= f.score)}
-      ${tile("Crash risk", res.mode === "walk" ? `${r.relative_risk.toFixed(2)}×` : `${r.crashes_per_million_trips.toFixed(2)}`, res.mode === "walk" ? "relative to average road" : isF ? "est. crashes per million trips" : `${signed(dRisk, 0, "%")} vs fastest`, isF ? null : dRisk <= 0)}
+      ${tile("Known blackspots", r.blackspots.length, "near this route", null)}
       ${tile("Travel time", fmtDuration(r.time_s), isF ? `at ${fmtHour(res.hour)}` : `${signed((r.time_s - f.time_s) / 60, 0, " min")} vs fastest`, isF ? null : r.time_s <= f.time_s + 30)}
       ${tile("Distance", fmtDist(r.distance_m), isF ? `${Math.round(r.exposure.arterial_share * 100)}% on main roads` : `${signed((r.distance_m - f.distance_m) / 1000, 1, " km")} vs fastest`, null)}
     </div>
-    <div class="sec-title">Where the risk comes from</div><div id="bd"></div>
+    <details class="route-details"><summary>What to expect along the way</summary><div class="sec-title">Safety factors</div><div id="bd"></div>
     <div class="sec-title">Route exposure</div>
     <div class="kv">
       <span>Main-road share</span><span>${Math.round(r.exposure.arterial_share * 100)}%</span>
@@ -494,9 +520,9 @@ function renderOverview(el, r, res) {
       <span>Within 1 km of police</span><span>${Math.round(r.exposure.police_within_1km_share * 100)}%</span>
       <span>Farthest point from a hospital</span><span>${r.exposure.max_hospital_km.toFixed(1)} km</span>
     </div>
-    <div class="sec-title">Accident blackspots on this route</div>
+    </details><div class="sec-title">Accident blackspots on this route</div>
     ${r.blackspots.length ? r.blackspots.map((b, i) => `<div class="bs-item" data-i="${i}">${ICON.warn}<div><b>${esc(b.name)}</b><small>${b.accidents ?? "–"} crashes · ${b.deaths ?? "–"} deaths on record</small></div></div>`).join("")
-      : `<div class="bs-item" style="cursor:default">${ICON.shield.replace("<svg", '<svg style="color:var(--st-good)"')}<div><b>None</b><small>This route stays clear of all documented blackspots.</small></div></div>`}`;
+      : `<div class="bs-item" style="cursor:default">${ICON.shield.replace("<svg", '<svg style="color:var(--st-good)"')}<div><b>None</b><small>No blackspots from our dataset were found near this route.</small></div></div>`}`;
   breakdownBar($("#bd", el), [
     { name: "Road & junction design", value: r.breakdown.road, color: cssVar("--r-safest") },
     { name: "Blackspot history", value: r.breakdown.blackspot, color: cssVar("--r-fastest") },
@@ -506,7 +532,7 @@ function renderOverview(el, r, res) {
   $$(".bs-item[data-i]", el).forEach((b) => (b.onclick = () => {
     const bs = r.blackspots[+b.dataset.i];
     map.flyTo(bs.lat, bs.lon, 15.5);
-    const full = state.layerData[res.region].blackspots.find((x) => x.id === bs.id);
+    const full = state.layerData[res.region]?.blackspots.find((x) => x.id === bs.id);
     if (full) setTimeout(() => map.blackspotPopup(full), 600);
   }));
 }
@@ -536,80 +562,24 @@ function renderDirections(el, r) {
   });
 }
 
-function renderAnalysis(el, res) {
-  const r = res.routes, sel = state.selected;
-  el.innerHTML = `<div class="sec-title">Risk along the route</div><div id="ch-profile"></div>
-    <div class="sec-title">Time vs safety trade-off (Pareto front)</div><div id="ch-pareto"></div>
-    <p class="note">Each dot is the optimal route for one safety weight λ in C = λ·R/R₀ + (1−λ)·T/T₀. No dot on the curve can get safer without getting slower.</p>`;
-  const series = [{ name: ROUTE_META[sel].name, color: routeColor(sel), points: r[sel].profile }];
-  if (sel !== "fastest") series.push({ name: "Fastest", color: routeColor("fastest"), points: r.fastest.profile });
-  riskProfile($("#ch-profile", el), series);
-  paretoChart($("#ch-pareto", el), res.pareto,
-    routeKeys().map((k) => ({ key: k, name: ROUTE_META[k].name, color: routeColor(k), time_s: r[k].time_s, score: r[k].score, distance_m: r[k].distance_m })),
-    (k) => select(k));
-}
-
 // ---------------------------------------------------------------------------
 async function openDrawer() {
   $("#drawer").hidden = false; $("#drawer-scrim").hidden = false;
-  const c = state.cities.find((x) => x.id === state.city);
-  const meth = await api.methodology();
-  if (!state.layerData[c.region]) state.layerData[c.region] = await api.layers(c.region);
-  const L = state.layerData[c.region];
-  const s = c.stats;
-  const delta = (a, b) => `${signed(100 * (a / b - 1), 0, "%")} vs 2021`;
+  $("#btn-drawer-close").focus();
   $("#drawer-body").innerHTML = `
-    <div class="sec-title">${esc(c.name)} — road crashes (MoRTH 2022)</div>
-    ${s ? `<div class="tiles">
-      <div class="tile"><div class="l">Road accidents</div><div class="v">${s.accidents_2022.toLocaleString("en-IN")}</div><div class="d ${s.accidents_2022 > s.accidents_2021 ? "bad" : "good"}">${delta(s.accidents_2022, s.accidents_2021)}</div></div>
-      <div class="tile"><div class="l">Persons killed</div><div class="v">${s.killed_2022.toLocaleString("en-IN")}</div><div class="d ${s.killed_2022 > s.killed_2021 ? "bad" : "good"}">${delta(s.killed_2022, s.killed_2021)}</div></div>
-      <div class="tile"><div class="l">Persons injured</div><div class="v">${s.injured_2022.toLocaleString("en-IN")}</div><div class="d ${s.injured_2022 > s.injured_2021 ? "bad" : "good"}">${delta(s.injured_2022, s.injured_2021)}</div></div>
-      <div class="tile"><div class="l">Deaths per 100 crashes</div><div class="v">${(100 * s.killed_2022 / s.accidents_2022).toFixed(0)}</div><div class="d">India avg: 37</div></div>
-    </div>` : `<p>Gandhinagar is not a million-plus city, so MoRTH publishes no city row; it is modelled together with Ahmedabad.</p>`}
-    <div class="sec-title">When crashes happen (India, MoRTH 2022)</div><div id="ch-tod"></div>
-    <p class="note">Bars show relative risk per vehicle-km: share of crashes ÷ share of traffic in each 3-hour window. Line = average (1.0). Night driving is up to ${Math.max(...meth.tod_risk.map((t) => t.risk)).toFixed(1)}× riskier.</p>
-    <div class="sec-title">Documented blackspots in this region (${L.blackspots.length})</div>
-    ${L.blackspots.map((b) => `<div class="bs-item" data-id="${b.id}">${ICON.warn}<div><b>${esc(b.name)}</b><small>${b.accidents ?? "–"} crashes · ${b.deaths ?? "–"} deaths · ${esc(b.period)} · weight ×${b.risk_multiplier.toFixed(1)}</small></div></div>`).join("")}
-    <div class="sec-title">How the safety score works</div>
-    <div class="formula">Edge risk  R_e = k · f_c · L · S(v) · TOD(h) · CMF_light · EB_bs
-Junction   R_j = k_j · arms · control · AADT_minor^0.35 · S(v) · turn
-Severity   S(v) = (1−φ)(v/40)² + φ(v/40)⁴      (Nilsson power model)
-Route cost C = W_t·T/T₀ + W_s·R/R₀              (A*, turn-aware)</div>
-    <ul>
-      <li><b>Crash frequency</b> f_c by road class, calibrated so the model reproduces each city's MoRTH 2022 crash total.</li>
-      <li><b>Severity</b> grows with operating speed (Nilsson power model; φ = ${meth.fatal_share} local fatal share).</li>
-      <li><b>Junctions</b>: risk per manoeuvre — right turns across traffic ×${meth.turn_risk.right}, U-turns ×${meth.turn_risk.uturn}, left ×${meth.turn_risk.left}.</li>
-      <li><b>Darkness</b>: unlit roads at night ×1.39 (HSM lighting CMF). Lighting is inferred from NASA VIIRS night-time lights.</li>
-      <li><b>Blackspots</b>: official/audited crash records blended with the model by Empirical Bayes.</li>
-      <li><b>Personal security</b> (lighting, activity, police proximity, CCTV) weighted by mode: car ${meth.security_gamma.car}, two-wheeler ${meth.security_gamma.two_wheeler}, walk ${meth.security_gamma.walk}.</li>
-    </ul>
-    <div class="sec-title">Data coverage — ${esc(state.regions[c.region].name)}</div>
-    <div class="kv">
-      <span>Road network modelled</span><span>${c.network_km?.toLocaleString("en-IN")} km</span>
-      <span>Police stations (OSM)</span><span>${c.coverage.police}</span>
-      <span>Hospitals (OSM)</span><span>${c.coverage.hospitals}</span>
-      <span>Mapped traffic signals</span><span>${c.coverage.signals_tagged}</span>
-      <span>Roads with speed limit tag</span><span>${(100 * c.coverage.osm_maxspeed).toFixed(1)}%</span>
-    </div>
-    <p class="note">Where OSM is sparse (signals, lamps), the model uses class-based priors and satellite night-lights; see docs/METHODOLOGY.md.</p>
-    <div class="sec-title">Sources</div>
-    <ul class="src-list">
-      <li>MoRTH, <i>Road Accidents in India 2022</i> (city totals, time-of-day, road features) and <i>2019</i> (Annexure 52 blackspots)</li>
-      <li>Gujarat Road Safety Authority audit &amp; State Traffic Branch lists, via Gujarat Samachar (2025, 2026)</li>
-      <li>OpenStreetMap contributors (road network, POIs) · NASA Black Marble VNP46A2 night lights (GIBS)</li>
-      <li>AASHTO Highway Safety Manual CMFs · Nilsson (2004) · Rosén &amp; Sander (2009) · BPR (1964) · Webster (1958)</li>
-    </ul>`;
-  const hrs = (a, b) => `${String(a).padStart(2, "0")}–${String(b).padStart(2, "0")}`;
-  columns($("#ch-tod"), meth.tod_risk.map((t) => ({
-    label: hrs(t.from, t.to), value: +t.risk.toFixed(2),
-    tip: `<b>${hrs(t.from, t.to)} h</b><br>${t.crash_share}% of crashes · ~${t.traffic_share}% of traffic<br>Relative risk <b>${t.risk.toFixed(2)}×</b>`,
-  })), { unit: "×", refLine: 1 });
-  $$("#drawer-body .bs-item").forEach((b) => (b.onclick = () => {
-    const bs = L.blackspots.find((x) => x.id === b.dataset.id);
-    closeDrawer(); map.flyTo(bs.lat, bs.lon, 15.5); setTimeout(() => map.blackspotPopup(bs), 700);
-  }));
+    <div class="about-intro">A more informed way to choose your route.</div>
+    <p>SafeRoute compares routes using road layout, junctions, recorded crash locations and estimated lighting. Choose a safer option and see how much extra time it takes.</p>
+    <div class="sec-title">What the score means</div>
+    <p>A higher score means lower estimated risk per kilometre. It is a comparison tool, not a guarantee of safety or a probability of avoiding a crash.</p>
+    <div class="sec-title">What we know</div>
+    <p>Roads and places come from OpenStreetMap. Historical crash records come from MoRTH and published Gujarat road safety reports. Satellite night lights help estimate lighting where street records are missing.</p>
+    <div class="sec-title">What can change</div>
+    <p>Traffic, roadworks and lighting may differ from the estimates. We do not have live traffic, incident or crime feeds. Follow road signs and local conditions.</p>
+    <div class="sec-title">Our project</div>
+    <p>Our team focuses on safety. Travel time helps you judge the detour. Air quality and traffic optimisation are outside this team's scope.</p>`;
 }
-function closeDrawer() { $("#drawer").hidden = true; $("#drawer-scrim").hidden = true; }
+
+function closeDrawer() { if (!$("#drawer").hidden) $("#btn-insights").focus(); $("#drawer").hidden = true; $("#drawer-scrim").hidden = true; }
 
 init().catch((e) => {
   console.error(e);

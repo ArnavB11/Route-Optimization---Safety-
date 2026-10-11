@@ -75,7 +75,7 @@ def directions(g, path, costs, mode):
     # fold tiny hops (< 30 m) into the previous step to keep the list readable
     merged = []
     for s in steps:
-        if merged and s["distance_m"] < 30 and s["type"] not in ("depart",):
+        if merged and s["distance_m"] < 30 and s["type"] == "continue":
             m = merged[-1]
             m["distance_m"] += s["distance_m"]; m["time_s"] += s["time_s"]; m["risk"] += s["risk"]
         else:

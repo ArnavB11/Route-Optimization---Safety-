@@ -40,11 +40,11 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/search":
             return self._json(api.do_search, q.get("q", ""), q.get("city"))
         if p == "/api/reverse":
-            return self._json(api.reverse, float(q["lat"]), float(q["lon"]))
+            return self._json(api.reverse, q.get("lat"), q.get("lon"))
         if p.startswith("/api/layers/"):
             return self._json(api.layers, p.rsplit("/", 1)[1])
         if p.startswith("/api/network/"):
-            return self._json(api.network_handler, p.rsplit("/", 1)[1], q.get("mode", "car"), float(q.get("hour", 21)))
+            return self._json(api.network_handler, p.rsplit("/", 1)[1], q.get("mode", "car"), q.get("hour", 21))
         if p == "/api/methodology":
             return self._json(api.methodology)
         f = (FRONTEND_DIR / (p.lstrip("/") or "index.html")).resolve()

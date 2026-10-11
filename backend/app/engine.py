@@ -15,6 +15,9 @@ D₀, T₀, R₀ are the fastest route's totals (route-relative normalisation).
 """
 from __future__ import annotations
 
+from collections import OrderedDict
+from threading import RLock
+
 import heapq
 import json
 import math
@@ -117,7 +120,8 @@ class RegionGraph:
         self.k_link, self.k_junction = cal["k_link"], cal["k_junction"]
         self.lg = {"car": LineGraph(a, a["edge_car"]), "walk": LineGraph(a, a["edge_walk"])}
         self.lg["two_wheeler"] = self.lg["car"]
-        self._cache = {}
+        self._cache = OrderedDict()
+        self._cache_lock = RLock()
 
     # -- geometry ---------------------------------------------------------
     def project(self, lat, lon):
@@ -135,9 +139,12 @@ class RegionGraph:
 
     # -- costs ----------------------------------------------------------------
     def costs(self, mode: str, hour: float) -> Costs:
-        key = (mode, round(hour * 2) / 2)
-        if key in self._cache:
-            return self._cache[key]
+        hour = math.floor(hour * 2) / 2
+        key = (mode, hour)
+        with self._cache_lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
         a, lg = self.a, self.lg[mode]
         es = a["edge_seg"]
         L_km = self.e_len / 1000.0
@@ -204,7 +211,11 @@ class RegionGraph:
         sec_ref = float(np.sum((security / np.maximum(L_km, 1e-3))[allowed] * w_e) / w_e.sum())
         c = Costs(edge_time=edge_time, edge_risk=edge_risk, trans_time=trans_time, trans_risk=junction,
                   parts_edge=parts_edge, parts_trans=parts_trans, ref_risk_per_km=crash_ref + sec_ref, dark=dark)
-        self._cache[key] = c
+        with self._cache_lock:
+            self._cache[key] = c
+            self._cache.move_to_end(key)
+            while len(self._cache) > 6:
+                self._cache.popitem(last=False)
         return c
 
     def weights(self, c: Costs, wd, wt, ws, D0, T0, R0):

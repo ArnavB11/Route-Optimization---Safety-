@@ -102,3 +102,21 @@ def test_walk_mode_ignores_oneway(g):
     car = Planner(g).plan(*TRIP, mode="car", hour=20)
     assert walk["routes"]["shortest"]["distance_m"] <= car["routes"]["shortest"]["distance_m"] + 1e-6
     assert walk["routes"]["safest"]["crashes_per_million_trips"] is None
+
+
+def test_cost_bucket_is_independent_of_request_order(g):
+    first = g.costs("car", 9.49)
+    same = g.costs("car", 9.0)
+    assert first is same
+    g._cache.clear()
+    exact = g.costs("car", 9.0)
+    np.testing.assert_allclose(first.edge_risk, exact.edge_risk)
+    np.testing.assert_allclose(first.edge_time, exact.edge_time)
+
+
+def test_cost_cache_is_bounded(g):
+    for hour in range(8):
+        g.costs("car", hour)
+    assert len(g._cache) == 6
+    assert ("car", 0.0) not in g._cache
+    assert g.costs("car", 7) is g.costs("car", 7.4)
