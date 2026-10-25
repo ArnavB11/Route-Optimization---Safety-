@@ -30,7 +30,7 @@ export function debounce(fn, ms) {
 }
 export const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
 };
 
 // Risk level from relative risk (route risk per km / traffic-weighted network average).

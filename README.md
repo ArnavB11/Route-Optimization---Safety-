@@ -52,7 +52,9 @@ This fallback is for local development. Use FastAPI for the normal application.
 4. Compare the safer choice with the fastest route. Select a card to highlight it and open **Directions** for the route steps.
 5. Open **Trip options** to change departure time, safety preference or extra travel time. The 100% option permits up to twice the fastest estimated duration.
 6. Expand the route details for lighting, junctions and safety factors. Map layers can show recorded blackspots, hospitals, police and CCTV.
-7. **Copy trip link** preserves both coordinates, mode, departure time, safety preference and detour limit. Anyone with the link can see those trip coordinates.
+7. **Save trip** stores up to five trips on this browser only. Reopen or delete them from the starting screen. Saved trips keep places and travel mode and use your current departure and safety settings.
+8. On mobile, **Show map** hides the planning panel so you can see the route. **Show trip** brings the controls back.
+9. **Copy trip link** preserves both coordinates, mode, departure time, safety preference, detour limit and selected route. Anyone with the link can see those trip coordinates.
 
 A single card means both searches selected the same route for these settings. It does not establish that no safer route exists under every possible setting.
 
@@ -98,6 +100,8 @@ The graph uses directed road segments and transitions between them. This lets a 
 
 The safety route combines risk and travel time relative to the fastest route. If it exceeds the chosen time allowance, the planner reduces the safety weight using a bounded search. This is a weighted-cost approximation to constrained routing, **not a proof of the globally safest path under a time budget**.
 
+Departure and estimated arrival times use **India time (Asia/Kolkata)**, including when the browser is in another timezone. The route overview explains available differences such as mapped crash locations avoided, fewer turns or less poorly lit road. If either selected point is more than 75 metres from the snapped road node, the app displays an access warning. Reaching the road is not part of the route or estimated travel time.
+
 The score compares estimated risk per kilometre with a traffic-weighted network reference. A score of 70 represents that reference. A displayed percentage reduction compares the model's total route risk with the fastest route's total risk. Neither number is a measured reduction in real-world crashes.
 
 ### Performance and reliability
@@ -108,6 +112,9 @@ The score compares estimated risk per kilometre with a traffic-weighted network 
 - FastAPI runs route calculations in its worker thread pool so they do not execute directly on the async event loop. CPU capacity still limits concurrent requests.
 - The normal interface skips shortest-path and Pareto research calculations using `include_analysis: false`.
 - Input validation rejects invalid modes, coordinates, non-finite numbers and unsupported option ranges.
+- Road snapping uses a separate spatial index for the nodes available to each travel mode, avoiding the previous twelve-candidate limit.
+- Detour bisection keeps the feasible path that was actually checked, rather than solving again and potentially choosing a different path with the same weighted cost.
+- Local place matches appear immediately while the optional online fallback continues. Search suggestions support keyboard selection and screen-reader combobox semantics.
 - New route requests cancel obsolete browser requests. Search and reverse-geocoding responses are checked against the current selection.
 - Photon fallback times out after 4.5 seconds. The local gazetteer remains available without Photon.
 
@@ -147,6 +154,8 @@ frontend/
   js/map.js          MapLibre map, overlays and popups
   js/charts.js       Chart helpers for detailed visualisations
   js/util.js         Formatting, icons and shared helpers
+  js/trip.js         Coordinate validation, route reasons and saved-trip helpers
+  tests/             Node regression checks for pure trip helpers
 docs/
   METHODOLOGY.md      Detailed formulas and assumptions
   VALIDATION.md      Existing simulation report
@@ -190,6 +199,7 @@ Run from the repository root in the activated environment:
 
 ```powershell
 python -m pytest -q backend/tests
+node --test frontend/tests/*.test.mjs
 ```
 
 HTTP integration tests use `httpx` and skip if FastAPI or httpx is unavailable. Core tests require NumPy, SciPy and pytest. Tests cover model formulas, A*/Dijkstra agreement, heuristic admissibility, detour limits, Pareto ordering, API validation and deterministic bounded caching.
@@ -222,7 +232,7 @@ The OSM, night-light and graph scripts accept region names `surat`, `ahmedabad`,
 - Street lighting, signals, traffic demand and security include assumptions or proxies. Satellite imagery is too coarse to confirm every street lamp.
 - Police/CCTV proximity is not crime-rate data. Hospital distances describe proximity, not emergency response time.
 - One-way roads are modelled, but comprehensive OSM turn restrictions, closures and vehicle-specific access rules are not implemented. Follow signs and verify routes before relying on them.
-- Points snap to graph nodes, potentially some distance from the selected location. The API reports that offset. Footpaths outside the included road network may be missing.
+- Points snap to the nearest graph node available to the travel mode, potentially some distance from the selected location. The API reports the offset and snapped coordinates. Footpaths outside the included road network may be missing.
 - Departure-time estimates do not update edge-by-edge as a trip progresses. There is no live traffic feed.
 - No general intercity routing, live rerouting or voice guidance is implemented. Ahmedabad and Gandhinagar are supported together because they share a graph.
 

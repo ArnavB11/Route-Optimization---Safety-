@@ -78,7 +78,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   display: flex; flex-direction: column; overflow: hidden;
 }
 .sheet-handle { display: none; }
-.brand, .city-chips, .planner, .panel-foot { flex: none; }
+.brand, .city-chips, .planner { flex: none; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 16px 16px 8px; }
 .brand-mark { width: 38px; height: 38px; border-radius: 11px; background: var(--accent); display: grid; place-items: center; flex: none; }
 .brand-mark svg { width: 24px; height: 24px; stroke: #fff; fill: rgba(255,255,255,.18); stroke-width: 1.7; }
@@ -316,7 +316,6 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
 .drawer li { margin-bottom: 4px; }
 .src-list a { color: var(--accent-ink); word-break: break-word; }
 
-.panel-foot { padding: 8px 16px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); }
 
 /* ===== Mobile: bottom sheet ============================================= */
 @media (max-width: 760px) {
@@ -378,8 +377,70 @@ input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 
   .risk-legend { bottom: calc(59dvh + 10px); }
   body:has(.panel.expanded) .risk-legend { display: none; }
   body:has(.panel.collapsed) .risk-legend { bottom: 220px; }
-  .panel-foot { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* Trip planning refresh: more room for choices and readable guidance. */
+.panel { width: 408px; }
+.brand { padding: 12px 16px 8px; }
+.brand-mark { width: 36px; height: 36px; border-radius: 12px; }
+.brand h1 { font-size: 19px; }
+.city-chips { padding-bottom: 8px; }
+.planner { padding-bottom: 12px; }
+.field input { min-height: 42px; }
+.modes { margin-top: 10px; }
+.mode { padding: 7px 10px; }
+.trip-options { margin-top: 10px; padding-top: 3px; }
+.planner-actions { margin-top: 8px; }
+.primary-btn { min-height: 40px; }
+button:disabled { cursor: default; opacity: .6; }
+.ctl-head small { font-weight: 400; }
+.rc-time small { display: block; margin: 5px 0 0; font-size: 11px; letter-spacing: 0; font-weight: 450; color: var(--ink-2); }
+.rc-sub { line-height: 1.5; }
+.rc-name { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); }
+.route-card { padding: 14px; }
+.rc-facts { margin-top: 12px; }
+.route-insight { padding: 2px 2px 12px; }
+.route-insight .sec-title { margin-top: 8px; }
+.route-insight ul { list-style: none; padding: 0; margin: 8px 0 0; }
+.route-insight li { position: relative; margin: 8px 0; padding-left: 17px; font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.route-insight li::before { content: ''; position: absolute; left: 1px; top: 7px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.access-note { display: flex; gap: 9px; padding: 12px; margin-bottom: 16px; background: var(--surface-2); border-radius: 12px; color: var(--ink-2); line-height: 1.6; font-size: 12px; }
+.access-note svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+.trip-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 16px; }
+.trip-actions button { font-size: 12px; padding-inline: 8px; }
+.empty-state { padding: 20px 0; text-align: left; }
+.empty-state > svg { width: 38px; height: 38px; }
+.empty-state h3 { font-size: 23px; line-height: 1.3; margin: 8px 0; }
+.empty-state p { margin: 0 0 18px; max-width: none; line-height: 1.65; }
+.example { padding: 12px; }
+.saved-heading { font-size: 13px; font-weight: 650; margin: 20px 0 8px; }
+.saved-heading span { float: right; font-size: 11px; color: var(--muted); font-weight: 400; }
+.saved-row { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 7px; }
+.saved-open { border: 0; background: transparent; text-align: left; flex: 1; min-width: 0; padding: 8px; }
+.saved-open b, .saved-open small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-open small { color: var(--ink-2); margin-top: 3px; }
+.saved-delete { font-size: 22px; }
+.map-view-btn { display: none; }
+.suggest li[aria-selected='true'] { background: var(--accent-wash); }
+.step:focus-visible { border-radius: 10px; }
+@media (max-width: 760px) {
+  .panel { width: 100%; height: 62dvh; }
+  .panel.has-trip { height: 67dvh; }
+  .panel.expanded { height: calc(100dvh - 45px); }
+  .panel.map-only, .panel.map-only.has-trip { height: 94px; overflow: hidden; }
+  .panel.map-only .city-chips, .panel.map-only .planner, .panel.map-only .results { display: none; }
+  .panel.map-only .brand p { display: block; }
+  .brand { padding-block: 6px; }
+  .map-view-btn { display: block; position: fixed; z-index: 10; right: 16px; bottom: calc(62dvh + 12px); border: 1px solid var(--border); background: var(--surface); color: var(--accent-ink); border-radius: 999px; padding: 10px 18px; font-weight: 600; box-shadow: var(--shadow-sm); }
+  body:has(.panel.has-trip) .map-view-btn { bottom: calc(67dvh + 12px); }
+  body:has(.panel.expanded) .map-view-btn { bottom: auto; top: 8px; }
+  body:has(.panel.map-only) .map-view-btn { top: auto; bottom: 106px; }
+  .risk-legend { bottom: auto; top: 12px; left: 12px; right: 65px; max-width: calc(100vw - 90px); }
+  body:has(.panel.map-only) .risk-legend { bottom: auto; top: 12px; display: flex; }
+  .toast { bottom: 105px; }
+  .sheet-handle { position: relative; height: 6px; }
+  .sheet-handle::after { content: ''; position: absolute; inset: -7px -22px; }
 }

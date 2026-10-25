@@ -24,9 +24,9 @@
       </div>
       <div class="brand-text">
         <h1>SafeRoute <span>Gujarat</span></h1>
-        <p>A little more care. Every journey.</p>
+        <p>Choose your way with care.</p>
       </div>
-      <button class="icon-btn" id="btn-insights" title="About safety" aria-label="City insights">
+      <button class="icon-btn" id="btn-insights" title="About safety" aria-label="About safety">
         <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
       </button>
     </header>
@@ -38,14 +38,14 @@
         <div class="od-rail" aria-hidden="true"><span class="dot o"></span><span class="rail"></span><span class="dot d"></span></div>
         <div class="od-fields">
           <div class="field" data-role="origin">
-            <input id="in-origin" type="text" placeholder="Choose starting point" autocomplete="off" spellcheck="false" aria-label="Starting point">
+            <input id="in-origin" type="text" placeholder="Choose starting point" autocomplete="off" spellcheck="false" aria-label="Starting point" enterkeyhint="next">
             <button class="field-btn" id="btn-locate" title="Use my location" aria-label="Use my location">
               <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7.5"/></svg>
             </button>
             <ul class="suggest" role="listbox"></ul>
           </div>
           <div class="field" data-role="destination">
-            <input id="in-destination" type="text" placeholder="Choose destination" autocomplete="off" spellcheck="false" aria-label="Destination">
+            <input id="in-destination" type="text" placeholder="Choose destination" autocomplete="off" spellcheck="false" aria-label="Destination" enterkeyhint="search">
             <ul class="suggest" role="listbox"></ul>
           </div>
         </div>
@@ -69,12 +69,12 @@
       <details class="trip-options"><summary>Trip options <span id="trip-summary"></span></summary><div class="controls">
         <div class="ctl">
           <div class="ctl-head">
-            <label for="in-hour">Departure</label>
+            <label for="in-hour">Departure <small>(India time)</small></label>
             <span class="ctl-val" id="hour-val"></span>
           </div>
           <div class="time-row">
             <button class="chip small" id="btn-now">Now</button>
-            <input type="range" id="in-hour" min="0" max="23.5" step="0.5" value="9" aria-label="Departure hour">
+            <input type="range" id="in-hour" min="0" max="23.9833333333" step="0.0166666667" value="9" aria-label="Departure hour">
           </div>
         </div>
         <div class="ctl">
@@ -88,7 +88,7 @@
         <div class="ctl inline">
           <label for="in-detour">Extra travel time</label>
           <div class="seg" id="in-detour" role="radiogroup">
-            <button data-v="0.1">10%</button><button data-v="0.25" class="on">25%</button><button data-v="0.5">50%</button><button data-v="1">100%</button>
+            <button role="radio" data-v="0.1">10%</button><button role="radio" data-v="0.25" class="on">25%</button><button role="radio" data-v="0.5">50%</button><button role="radio" data-v="1">100%</button>
           </div>
         </div>
       </div></details>
@@ -96,9 +96,6 @@
     </section>
 
     <section id="results" class="results" aria-live="polite"></section>
-    <footer class="panel-foot">
-      Data: OpenStreetMap · NASA VIIRS · MoRTH 2022 · Gujarat Road Safety Authority
-    </footer>
   </aside>
 
   <!-- ===== Map controls ===== -->
@@ -131,16 +128,18 @@
     <span><i style="background:var(--st-critical)"></i>Very high</span>
   </div>
 
+  <button id="btn-map-view" class="map-view-btn" aria-controls="panel" aria-expanded="true">Show map</button>
+
   <div class="toast" id="toast" role="status" hidden></div>
 
   <!-- ===== Insights drawer ===== -->
   <div class="drawer-scrim" id="drawer-scrim" hidden></div>
-  <aside class="drawer" id="drawer" aria-label="City insights" hidden>
+  <aside class="drawer" id="drawer" aria-label="About safety" hidden>
     <header><h2>About safety</h2><button class="icon-btn" id="btn-drawer-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
     <div id="drawer-body"></div>
   </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script type="module" src="js/app.js?v=20261011"></script>
+  <script type="module" src="js/app.js?v=20261025"></script>
 </body>
 </html>

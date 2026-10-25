@@ -120,3 +120,35 @@ def test_cost_cache_is_bounded(g):
     assert len(g._cache) == 6
     assert ("car", 0.0) not in g._cache
     assert g.costs("car", 7) is g.costs("car", 7.4)
+
+@pytest.mark.parametrize("mode", ["car", "two_wheeler", "walk"])
+def test_snap_is_nearest_available_node(g, mode):
+    ids = np.flatnonzero(g.lg[mode].has_out)
+    for lat, lon in [(TRIP[0], TRIP[1]), (TRIP[2], TRIP[3]), (22.30, 73.20)]:
+        node, distance = g.snap(lat, lon, mode)
+        expected = np.linalg.norm(g.node_xy[ids] - g.project(lat, lon), axis=1).min()
+        assert g.lg[mode].has_out[node]
+        assert distance == pytest.approx(expected)
+
+
+def test_snap_searches_beyond_twelve_unavailable_nodes():
+    from scipy.spatial import cKDTree
+    from app.engine import RegionGraph
+    graph = RegionGraph.__new__(RegionGraph)
+    graph.project = lambda lat, lon: np.array([lat, lon])
+    ids = np.array([20])
+    graph.snap_indexes = {"car": (ids, cKDTree([[20, 0]]))}
+    node, distance = graph.snap(0, 0, "car")
+    assert node == 20 and distance == 20
+
+
+@pytest.mark.parametrize("mode,cap", [("car", 0), ("two_wheeler", .1), ("walk", .25)])
+def test_high_safety_preference_keeps_time_limit(g, mode, cap):
+    result = Planner(g).plan(*TRIP, mode=mode, hour=21, safety_weight=1, max_detour=cap, alternatives=False)
+    fast, safe = result["routes"]["fastest"], result["routes"]["safest"]
+    assert safe["time_s"] <= fast["time_s"] * (1 + cap) + 1e-6
+    assert safe["risk"] <= fast["risk"] + 1e-15
+    # Packed segment coordinates are float32; node coordinates retain more precision.
+    for point, coords in zip(result["snapped_points"], [safe["geometry"][0], safe["geometry"][-1]]):
+        assert point["lon"] == pytest.approx(coords[0], abs=1e-5)
+        assert point["lat"] == pytest.approx(coords[1], abs=1e-5)

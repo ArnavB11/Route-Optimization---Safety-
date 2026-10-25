@@ -64,15 +64,19 @@ class Planner:
         if g.totals(safe, c)[0] > (1 + max_detour) * T0:
             capped = True
             lo, hi = 0.0, lam
+            feasible = fast
             for _ in range(6):
                 mid = (lo + hi) / 2
                 p = g.dijkstra(src, dst, mode, *weights(mid))
                 if g.totals(p, c)[0] <= (1 + max_detour) * T0:
                     lo = mid
+                    feasible = p
                 else:
                     hi = mid
             lam = lo
-            safe = g.astar(src, dst, mode, *weights(lam), h_coef(lam)) if lam > 0 else fast
+            # Keep the path whose time was actually checked. An equally weighted
+            # A* solution can have a different time when several paths tie.
+            safe = feasible
 
         routes = {
             "fastest": self.summary(fast, c, mode),
@@ -137,6 +141,10 @@ class Planner:
         return {
             "region": g.region, "mode": mode, "hour": hour, "is_dark": c.dark > 0.5,
             "snap_distance_m": [round(ds), round(dd)],
+            "snapped_points": [
+                {"lat": float(g.a["node_lat"][node]), "lon": float(g.a["node_lon"][node])}
+                for node in (src, dst)
+            ],
             "reference_risk_per_km": c.ref_risk_per_km,
             "routes": routes, "pareto": pareto, "comparison": comparison,
             "stats": {"fastest_expanded": fast.expanded, "safest_expanded": safe.expanded,

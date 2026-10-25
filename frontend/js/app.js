@@ -1,6 +1,7 @@
 import { api, photon } from "./api.js";
 import { breakdownBar } from "./charts.js";
-import { MapView } from "./map.js?v=20261011";
+import { MapView } from "./map.js?v=20261025";
+import { arrivalTime, parsePoint, routeReasons, savedTrips, tripKey, validPoint } from "./trip.js";
 import {
   $, $$, ICON, cssVar, debounce, esc, fmtDist, fmtDuration, fmtHour, kindIcon, riskLevel, signed, store,
 } from "./util.js";
@@ -19,14 +20,19 @@ const state = {
   mode: "car", hour: nowHour(), safety: 0.7, detour: 0.25,
   result: null, selected: "safest", tab: "overview",
   layerData: {}, theme: initialTheme(), pending: null,
+  saved: savedTrips(store.get("sr-saved-trips", [])), searchReset: [],
 };
 
-function nowHour() { const d = new Date(); return Math.min(23.5, d.getHours() + (d.getMinutes() >= 30 ? 0.5 : 0)); }
+function nowHour() {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+  const value = (kind) => Number(parts.find((part) => part.type === kind).value);
+  return value("hour") + value("minute") / 60;
+}
 function initialTheme() {
   const q = new URLSearchParams(location.search).get("theme");
   if (q === "light" || q === "dark") return q;
   const t = store.get("sr-theme-v", null);
-  if (t) return t;
+  if (t === "light" || t === "dark") return t;
   return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 function routeColor(k) { return cssVar(ROUTE_META[k].css); }
@@ -59,6 +65,7 @@ async function init() {
   const saved = store.get("sr-city", "ahmedabad");
   state.city = cities.find((c) => c.id === (params.get("city") || saved) && c.ready)?.id || cities.find((c) => c.ready)?.id;
   const city = cities.find((c) => c.id === state.city);
+  store.set("sr-city", state.city);
 
   map = new MapView($("#map"), {
     center: city.center, zoom: city.zoom, theme: state.theme,
@@ -68,28 +75,31 @@ async function init() {
   bindControls();
   renderEmpty();
   await map.ready;
-  await loadRegionLayers(city.region);
+  await loadRegionLayers(city.region).catch(() => toast("Safety map layers are unavailable. You can still plan a route."));
 
   // restore a shared link
   const o = params.get("o"), d = params.get("d");
   if (params.get("mode")) setMode(params.get("mode"), false);
-  for (const [key, field, max] of [["h", "hour", 23.5], ["s", "safety", 1], ["detour", "detour", 1]]) {
+  for (const [key, field, max] of [["h", "hour", 24 - 1 / 60], ["s", "safety", 1], ["detour", "detour", 1]]) {
     const value = Number(params.get(key));
     if (params.has(key) && Number.isFinite(value) && value >= 0 && value <= max) state[field] = value;
   }
   syncControls();
   if (o && d) {
-    const [olat, olon] = o.split(",").map(Number), [dlat, dlon] = d.split(",").map(Number);
-    await setPoint("origin", { lat: olat, lon: olon }, true, true);
-    await setPoint("destination", { lat: dlat, lon: dlon }, true, true);
-    plan();
+    const origin = parsePoint(o), destination = parsePoint(d);
+    if (origin && destination && regionOf(origin.lat, origin.lon) === regionOf(destination.lat, destination.lon)) {
+      await setPoint("origin", origin, true, true);
+      await setPoint("destination", destination, true, true);
+      if (params.get("route") === "fastest") state.selected = "fastest";
+      maybePlan();
+    } else toast("This trip link has invalid locations. Please choose your start and destination.");
   }
 }
 
 // ---------------------------------------------------------------------------
 function renderCityChips() {
   $("#city-chips").innerHTML = state.cities.map((c) =>
-    `<button class="chip ${c.id === state.city ? "on" : ""}" data-city="${c.id}" ${c.ready ? "" : "disabled title='Not built yet'"}>${esc(c.name)}</button>`).join("");
+    `<button class="chip ${c.id === state.city ? "on" : ""}" data-city="${c.id}" aria-pressed="${c.id === state.city}" ${c.ready ? "" : "disabled title='Not built yet'"}>${esc(c.name)}</button>`).join("");
   $$("#city-chips .chip").forEach((b) => (b.onclick = () => switchCity(b.dataset.city)));
 }
 
@@ -102,11 +112,13 @@ async function switchCity(id, fly = true) {
   renderCityChips();
   if (fly) map.flyTo(c.center[0], c.center[1], c.zoom);
   if (regionChanged) {
+    resetSearch();
     clearRoute();
+    map.setNetwork({ type: "FeatureCollection", features: [] });
     state.origin = state.destination = null;
     $("#in-origin").value = ""; $("#in-destination").value = "";
     map.setPin("origin", null); map.setPin("destination", null);
-    await loadRegionLayers(c.region);
+    await loadRegionLayers(c.region).catch(() => toast("Map layers unavailable. Route planning is still available."));
     renderEmpty();
   }
 }
@@ -120,64 +132,100 @@ async function loadRegionLayers(reg) {
   if (map.visible.risk) refreshNetwork();
 }
 
+let networkRevision = 0;
 const refreshNetwork = debounce(async () => {
+  const ticket = ++networkRevision;
   if (!map.visible.risk) return;
-  try { map.setNetwork(await api.network(region(), state.mode, state.hour)); } catch (e) { toast(e.message); }
+  const reg = region(), mode = state.mode, hour = state.hour;
+  try {
+    const data = await api.network(reg, mode, hour);
+    if (ticket === networkRevision && reg === region() && mode === state.mode && hour === state.hour && map.visible.risk) map.setNetwork(data);
+  } catch (e) { if (ticket === networkRevision) toast(e.message); }
 }, 200);
+
+function resetSearch() { state.searchReset.forEach((reset) => reset()); }
 
 // ---------------------------------------------------------------------------
 function bindControls() {
   // search fields
   for (const role of ["origin", "destination"]) {
     const field = $(`.field[data-role="${role}"]`), input = $("input", field), list = $(".suggest", field);
-    let items = [], active = -1, revision = 0;
+    let items = [], active = -1, revision = 0, searchController;
+    list.id = `suggest-${role}`;
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-controls", list.id);
+    input.setAttribute("aria-expanded", "false");
+    const close = () => {
+      list.classList.remove("open"); input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant"); items = []; active = -1;
+    };
+    state.searchReset.push(() => { revision++; searchController?.abort(); close(); });
     const show = (rows) => {
-      items = rows; active = -1;
-      if (!rows.length) { list.innerHTML = `<li class="s-empty">No matches in ${esc(cityName())}. Try another name or click the map.</li>`; list.classList.add("open"); return; }
-      list.innerHTML = rows.map((r, i) => `<li role="option" data-i="${i}"><span class="s-ico">${kindIcon(r.kind)}</span>
-        <span class="s-main"><div class="s-name">${esc(r.name)}</div><div class="s-sub">${esc(r.kind)}${r.sub ? " · " + esc(r.sub) : ""}</div></span></li>`).join("");
-      list.classList.add("open");
+      const selected = items[active];
+      items = rows;
+      active = selected ? rows.findIndex((r) => r.name === selected.name && r.lat === selected.lat && r.lon === selected.lon) : -1;
+      list.innerHTML = rows.length ? rows.map((r, i) => `<li id="${list.id}-${i}" role="option" aria-selected="${i === active}" class="${i === active ? "active" : ""}" data-i="${i}"><span class="s-ico">${kindIcon(r.kind)}</span>
+        <span class="s-main"><div class="s-name">${esc(r.name)}</div><div class="s-sub">${esc(r.kind)}${r.sub ? " · " + esc(r.sub) : ""}</div></span></li>`).join("")
+        : `<li class="s-empty">No matches. Try another name or choose a point on the map.</li>`;
+      list.classList.add("open"); input.setAttribute("aria-expanded", "true");
+      if (active >= 0) input.setAttribute("aria-activedescendant", `${list.id}-${active}`);
       $$("li[data-i]", list).forEach((li) => li.addEventListener("mousedown", (ev) => { ev.preventDefault(); pick(+li.dataset.i); }));
     };
     const pick = (i) => {
       const r = items[i];
       if (!r) return;
-      revision++;
-      list.classList.remove("open");
+      revision++; searchController?.abort(); close();
       input.value = r.name;
-      setPoint(role, { lat: r.lat, lon: r.lon, label: r.name }).then(() => { maybePlan(); });
+      setPoint(role, { lat: r.lat, lon: r.lon, label: r.name }).then((ok) => {
+        if (!ok) return;
+        if (!state.destination && role === "origin") $("#in-destination").focus();
+        maybePlan();
+      });
     };
     const run = debounce(async () => {
-      const ticket = revision, searchCity = state.city;
-      const q = input.value.trim();
-      if (q.length < 2) { list.classList.remove("open"); return; }
-      const m = q.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/);
-      if (m) return show([{ name: `${(+m[1]).toFixed(5)}, ${(+m[2]).toFixed(5)}`, kind: "Coordinates", lat: +m[1], lon: +m[2] }]);
+      const ticket = revision, searchCity = state.city, q = input.value.trim();
+      if (q.length < 2 || document.activeElement !== input) return close();
+      searchController?.abort(); searchController = new AbortController();
+      const signal = searchController.signal;
+      const current = () => !signal.aborted && ticket === revision && searchCity === state.city && document.activeElement === input;
+      const point = parsePoint(q);
+      if (point) return show([{ name: q, kind: "Coordinates", ...point }]);
+      let rows = [];
       try {
-      const { results } = await api.search(q, searchCity);
-      if (ticket !== revision || searchCity !== state.city) return;
-      let rows = results.map((r) => ({ ...r, sub: cityName() }));
-      if (rows.length < 4) {
-        const ext = await photon(q, state.regions[region()].bbox);
+        const { results } = await api.search(q, searchCity, signal);
+        if (!current()) return;
+        rows = results.map((r) => ({ ...r, sub: cityName() }));
+        if (rows.length) show(rows.slice(0, 8));
+      } catch (e) { if (!current()) return; }
+      if (rows.length < 4 && current()) {
+        const ext = await photon(q, state.regions[region()].bbox, signal);
+        if (!current()) return;
         for (const e of ext) if (!rows.some((r) => r.name.toLowerCase() === e.name.toLowerCase())) rows.push(e);
       }
-      if (ticket === revision && searchCity === state.city && document.activeElement === input) show(rows.slice(0, 8));
-      } catch (e) { if (ticket === revision) toast("Search unavailable. Choose a point on the map or try again."); }
+      if (current()) show(rows.slice(0, 8));
     }, 180);
-    input.addEventListener("input", () => { revision++; items = []; list.classList.remove("open"); state[role] = null; map.setPin(role, null); clearRoute(); renderEmpty(); run(); });
+    input.addEventListener("input", () => {
+      revision++; searchController?.abort(); close(); state[role] = null;
+      map.setPin(role, null); clearRoute(); renderEmpty(); run();
+    });
     input.addEventListener("focus", () => { if (input.value.trim().length >= 2) run(); });
-    input.addEventListener("blur", () => setTimeout(() => list.classList.remove("open"), 120));
+    input.addEventListener("blur", () => { revision++; searchController?.abort(); setTimeout(close, 120); });
     input.addEventListener("keydown", (ev) => {
+      if (!list.classList.contains("open")) return;
       const lis = $$("li[data-i]", list);
-      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      if ((ev.key === "ArrowDown" || ev.key === "ArrowUp") && lis.length) {
         ev.preventDefault();
-        active = (active + (ev.key === "ArrowDown" ? 1 : -1) + lis.length) % lis.length;
-        lis.forEach((li, i) => li.classList.toggle("active", i === active));
+        active = active < 0 ? (ev.key === "ArrowDown" ? 0 : lis.length - 1) : (active + (ev.key === "ArrowDown" ? 1 : -1) + lis.length) % lis.length;
+        lis.forEach((li, i) => { li.classList.toggle("active", i === active); li.setAttribute("aria-selected", i === active); });
+        input.setAttribute("aria-activedescendant", `${list.id}-${active}`);
+        lis[active].scrollIntoView({ block: "nearest" });
       } else if (ev.key === "Enter") { ev.preventDefault(); pick(active >= 0 ? active : 0); }
-      else if (ev.key === "Escape") list.classList.remove("open");
+      else if (ev.key === "Escape") close();
     });
   }
   $("#btn-swap").onclick = () => {
+    resetSearch(); clearRoute();
     [state.origin, state.destination] = [state.destination, state.origin];
     $("#in-origin").value = state.origin?.label || "";
     $("#in-destination").value = state.destination?.label || "";
@@ -189,20 +237,34 @@ function bindControls() {
     plan();
   };
   $("#btn-clear").onclick = () => {
-    clearRoute(); state.origin = state.destination = null;
+    resetSearch(); clearRoute(); state.origin = state.destination = null;
     for (const role of ["origin", "destination"]) { $("#in-" + role).value = ""; map.setPin(role, null); }
-    history.replaceState(null, "", location.pathname); renderEmpty();
+    history.replaceState(null, "", `?city=${encodeURIComponent(state.city)}`); renderEmpty();
   };
   $("#btn-locate").onclick = locate;
+  $("#btn-map-view").onclick = () => {
+    $("#panel").classList.toggle("map-only");
+    const hidden = $("#panel").classList.contains("map-only");
+    $("#btn-map-view").textContent = hidden ? "Show trip" : "Show map";
+    $("#btn-map-view").setAttribute("aria-expanded", !hidden);
+    if (state.result) fitSelected();
+  };
   $$(".mode").forEach((b) => (b.onclick = () => setMode(b.dataset.mode)));
   const hour = $("#in-hour");
-  hour.oninput = () => { state.hour = +hour.value; syncControls(); replan(); refreshNetwork(); };
+  hour.oninput = () => { state.hour = Math.min(1439, Math.round(+hour.value * 60)) / 60; syncControls(); replan(); refreshNetwork(); };
   $("#btn-now").onclick = () => { state.hour = nowHour(); syncControls(); replan(); refreshNetwork(); };
   const safety = $("#in-safety");
   safety.oninput = () => { state.safety = +safety.value; syncControls(); replan(); };
-  $$("#in-detour button").forEach((b) => (b.onclick = () => {
-    state.detour = +b.dataset.v; syncControls(); replan();
-  }));
+  const detours = $$("#in-detour button");
+  detours.forEach((button, index) => {
+    button.onclick = () => { state.detour = +button.dataset.v; syncControls(); replan(); };
+    button.onkeydown = (event) => {
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+      event.preventDefault();
+      const next = (index + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + detours.length) % detours.length;
+      detours[next].click(); detours[next].focus();
+    };
+  });
   // map controls
   $("#btn-layers").onclick = (ev) => { ev.stopPropagation(); const p = $("#layers-pop"); p.hidden = !p.hidden; $("#btn-layers").classList.toggle("on", !p.hidden); };
   document.addEventListener("click", (ev) => { if (!ev.target.closest("#map-ctl")) { $("#layers-pop").hidden = true; $("#btn-layers").classList.remove("on"); } });
@@ -222,10 +284,12 @@ function bindControls() {
   // mobile bottom sheet
   const panel = $("#panel");
   $("#sheet-handle").onclick = () => {
-    if (panel.classList.contains("expanded")) { panel.classList.remove("expanded"); panel.classList.add("collapsed"); }
-    else if (panel.classList.contains("collapsed")) panel.classList.remove("collapsed");
-    else panel.classList.add("expanded");
+    if (panel.classList.contains("map-only")) panel.classList.remove("map-only");
+    else panel.classList.toggle("expanded");
+    $("#btn-map-view").textContent = "Show map";
+    $("#btn-map-view").setAttribute("aria-expanded", "true");
   };
+  panel.addEventListener("transitionend", (event) => { if (event.propertyName === "height" && state.result) fitSelected(); });
   syncControls();
 }
 
@@ -238,9 +302,11 @@ function syncControls() {
   const dark = state.hour >= 19.5 || state.hour < 6;
   $("#hour-val").innerHTML = `${fmtHour(state.hour)} · ${dark ? "night" : state.hour >= 18 ? "dusk" : "day"}`;
   $("#trip-summary").textContent = `${fmtHour(state.hour)} · up to ${Math.round(state.detour * 100)}% extra`;
+  h.setAttribute("aria-valuetext", `${fmtHour(state.hour)} India time`);
+  s.setAttribute("aria-valuetext", state.safety >= .6 ? "Prefer safety" : "Prefer shorter travel time");
   const sv = state.safety;
   $("#safety-val").textContent = sv >= 0.85 ? "Maximum safety" : sv >= 0.6 ? "Prefer safety" : sv >= 0.35 ? "Balanced" : sv > 0.05 ? "Prefer speed" : "Speed only";
-  $$("#in-detour button").forEach((b) => b.classList.toggle("on", +b.dataset.v === state.detour));
+  $$("#in-detour button").forEach((b) => { b.classList.toggle("on", +b.dataset.v === state.detour); b.setAttribute("aria-checked", +b.dataset.v === state.detour); b.tabIndex = +b.dataset.v === state.detour ? 0 : -1; });
 }
 
 function setMode(mode, doPlan = true) {
@@ -264,8 +330,11 @@ function applyTheme(theme, persist) {
 
 // ---------------------------------------------------------------------------
 async function setPoint(role, pt, skipLabel, noFly) {
+  if (!validPoint(pt)) return false;
   const reg = regionOf(pt.lat, pt.lon);
   if (!reg) { toast("That point is outside the five supported cities."); return false; }
+  resetSearch();
+  clearRoute();
   if (reg !== region()) {
     const c = cityForRegion(reg, pt.lat, pt.lon);
     await switchCity(c.id, false);
@@ -298,21 +367,30 @@ function onMapClick(ll) {
   else update("Outside supported cities");
 }
 
-function onPinDrag(role, lat, lon) { setPoint(role, { lat, lon }).then(maybePlan); }
+async function onPinDrag(role, lat, lon) {
+  if (await setPoint(role, { lat, lon })) maybePlan();
+  else map.setPin(role, state[role]);
+}
 
+let locationRevision = 0;
 function locate() {
   if (!navigator.geolocation) return toast("Location isn't available in this browser.");
+  resetSearch();
+  const ticket = ++locationRevision;
+  const previous = $("#in-origin").value;
   $("#in-origin").value = "Finding your location…";
-  navigator.geolocation.getCurrentPosition(async (p) => {
-    const { latitude: lat, longitude: lon } = p.coords;
-    if (!regionOf(lat, lon)) {
-      $("#in-origin").value = "";
-      toast("You're outside Surat, Ahmedabad, Gandhinagar, Vadodara and Rajkot — pick a start point on the map.");
-      return;
-    }
-    await setPoint("origin", { lat, lon, label: "Your location" });
-    maybePlan();
-  }, () => { $("#in-origin").value = ""; toast("Couldn't get your location (permission denied or unavailable)."); },
+  $("#btn-locate").disabled = true;
+  const failed = (message) => {
+    if (ticket !== locationRevision) return;
+    $("#in-origin").value = previous; $("#btn-locate").disabled = false; toast(message);
+  };
+  navigator.geolocation.getCurrentPosition(async (position) => {
+    if (ticket !== locationRevision) return;
+    const { latitude: lat, longitude: lon } = position.coords;
+    if (!regionOf(lat, lon)) return failed("Your location is outside our supported cities. Choose a starting point on the map.");
+    $("#btn-locate").disabled = false;
+    if (await setPoint("origin", { lat, lon, label: "Your location" })) maybePlan();
+  }, () => failed("Couldn't get your location. You can choose a starting point on the map."),
   { enableHighAccuracy: true, timeout: 10000 });
 }
 
@@ -326,6 +404,9 @@ async function plan() {
   const ctl = new AbortController();
   state.pending = ctl;
   $("#results").setAttribute("aria-busy", "true");
+  $("#btn-plan").textContent = "Finding routes…";
+  $("#btn-plan").disabled = true;
+  $("#panel").classList.add("has-trip");
   if (!state.result) $("#results").innerHTML = `<div class="loading"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>`;
   else $("#results").style.opacity = 0.55;
   try {
@@ -333,7 +414,7 @@ async function plan() {
       origin: state.origin, destination: state.destination, mode: state.mode, hour: state.hour,
       safety_weight: state.safety, max_detour: state.detour, include_analysis: false,
     }, ctl.signal);
-    if (ctl.signal.aborted) return;
+    if (ctl.signal.aborted || state.pending !== ctl) return;
     const first = !state.result;
     state.result = res;
     if (!res.routes[state.selected]) state.selected = "safest";
@@ -342,12 +423,14 @@ async function plan() {
     $("#risk-legend").hidden = false;
     updateUrl();
   } catch (e) {
-    if (e.name === "AbortError") return;
+    if (e.name === "AbortError" || state.pending !== ctl) return;
     state.result = null;
     map.clearRoutes();
-    $("#results").innerHTML = `<div class="empty-state">${ICON.warn}<h3>Couldn't plan that trip</h3><p>${esc(e.message)}</p></div>`;
+    $("#risk-legend").hidden = !map.visible.risk;
+    $("#results").innerHTML = `<div class="empty-state">${ICON.warn}<h3>Couldn't plan that trip</h3><p>${esc(e.message)}</p><button class="text-btn" id="btn-retry">Try again</button></div>`;
+    $("#btn-retry").onclick = plan;
   } finally {
-    if (state.pending === ctl) { $("#results").style.opacity = 1; $("#results").setAttribute("aria-busy", "false"); }
+    if (state.pending === ctl) { $("#results").style.opacity = 1; $("#results").setAttribute("aria-busy", "false"); $("#btn-plan").disabled = false; $("#btn-plan").textContent = "Find routes"; state.pending = null; }
   }
 }
 
@@ -355,12 +438,28 @@ function updateUrl() {
   const p = new URLSearchParams({
     city: state.city, o: `${state.origin.lat.toFixed(5)},${state.origin.lon.toFixed(5)}`,
     d: `${state.destination.lat.toFixed(5)},${state.destination.lon.toFixed(5)}`,
-    mode: state.mode, h: state.hour, s: state.safety, detour: state.detour,
+    mode: state.mode, h: state.hour, s: state.safety, detour: state.detour, route: state.selected,
   });
   history.replaceState(null, "", `?${p}`);
 }
 
-function clearRoute() { state.pending?.abort(); state.pending = null; state.result = null; $("#results").style.opacity = 1; $("#results").setAttribute("aria-busy", "false"); map?.clearRoutes(); $("#risk-legend").hidden = !map?.visible.risk; }
+function clearRoute() {
+  locationRevision++;
+  $("#btn-locate").disabled = false;
+  history.replaceState(null, "", `?city=${encodeURIComponent(state.city)}`);
+  $("#btn-plan").disabled = false;
+  $("#btn-plan").textContent = "Find routes";
+  $("#panel").classList.remove("has-trip");
+  state.selected = "safest";
+  state.tab = "overview";
+  state.pending?.abort();
+  state.pending = null;
+  state.result = null;
+  $("#results").style.opacity = 1;
+  $("#results").setAttribute("aria-busy", "false");
+  map?.clearRoutes();
+  $("#risk-legend").hidden = !map?.visible.risk;
+}
 
 function routeKeys() {
   const r = state.result.routes;
@@ -378,29 +477,47 @@ function fitSelected() {
   if (!state.result) return;
   const all = routeKeys().flatMap((k) => state.result.routes[k].geometry);
   const mobile = innerWidth <= 760;
-  map.fit(all, mobile ? { top: 70, bottom: innerHeight * 0.58, left: 30, right: 30 } : { top: 60, bottom: 60, left: 450, right: 80 });
+  const height = $("#panel").getBoundingClientRect().height;
+  map.fit(all, mobile ? { top: 45, bottom: Math.min(height + 24, innerHeight - 140), left: 24, right: 24 } : { top: 60, bottom: 60, left: 450, right: 80 });
 }
 
-function select(k) {
+function select(k, focus = false) {
   if (!state.result?.routes[k]) return;
   state.selected = k;
+  updateUrl();
   renderResult();
   drawResult(false);
+  if (focus) $(`.route-card[data-k="${k}"]`)?.focus();
 }
 
 // ---------------------------------------------------------------------------
 function renderEmpty() {
   const c = state.cities.find((x) => x.id === state.city);
   const ex = EXAMPLES[c?.region] || [];
+  const saved = state.saved.filter((t) => t.city === state.city);
   $("#results").innerHTML = `<div class="empty-state">${ICON.shield}
     <h3>Plan a safer trip in ${esc(c?.name || "Gujarat")}</h3>
     <p>Choose your start and destination. Compare the fastest route with a choice that considers known crash locations, junctions and lighting.</p>
-    ${ex.length ? `<div class="examples">${ex.map((e, i) => `<button class="example" data-i="${i}">${ICON.route}<span><b>${esc(e.from.label)} → ${esc(e.to.label)}</b><small>${esc(e.note)}</small></span></button>`).join("")}</div>` : ""}
+    ${saved.length ? `<div class="saved-heading">Saved trips <span>On this browser</span></div><div class="saved-trips">${saved.map((t) => `<div class="saved-row"><button class="saved-open" data-key="${esc(tripKey(t))}"><b>${esc(t.origin.label || "Starting point")}</b><small>to ${esc(t.destination.label || "Destination")} · ${MODE_LABEL[t.mode]}</small></button><button class="icon-btn saved-delete" data-key="${esc(tripKey(t))}" aria-label="Delete saved trip from ${esc(t.origin.label || "starting point")} to ${esc(t.destination.label || "destination")}">×</button></div>`).join("")}</div>` : ""}
+    ${ex.length ? `<div class="sec-title">Try a trip</div><div class="examples">${ex.map((e, i) => `<button class="example" data-i="${i}">${ICON.route}<span><b>${esc(e.from.label)} → ${esc(e.to.label)}</b><small>${esc(e.note)}</small></span></button>`).join("")}</div>` : ""}
   </div>`;
+  $$(".saved-open").forEach((button) => (button.onclick = async () => {
+    const trip = state.saved.find((t) => tripKey(t) === button.dataset.key);
+    if (!trip) return;
+    setMode(trip.mode, false);
+    await setPoint("origin", trip.origin, false, true);
+    await setPoint("destination", trip.destination, false, true);
+    maybePlan();
+  }));
+  $$(".saved-delete").forEach((button) => (button.onclick = () => {
+    const value = state.saved.filter((t) => tripKey(t) !== button.dataset.key);
+    if (store.set("sr-saved-trips", value)) { state.saved = value; renderEmpty(); }
+    else toast("Browser storage is unavailable. Please try again.");
+  }));
   $$(".example").forEach((b) => (b.onclick = async () => {
     const e = ex[+b.dataset.i];
     if (e.hour != null) { state.hour = e.hour; }
-    if (e.mode) setMode(e.mode, false);
+    setMode(e.mode || "car", false);
     syncControls();
     await setPoint("origin", e.from, false, true); await setPoint("destination", e.to, false, true);
     plan();
@@ -464,8 +581,8 @@ function card(k, res) {
   facts.push(`<span class="fact">${ICON.turnR}${r.exposure.right_turns} right turns</span>`);
   return `<div class="route-card ${state.selected === k ? "sel" : ""}" data-k="${k}" style="--rc:var(${meta.css})" tabindex="0" role="button" aria-pressed="${state.selected === k}">
     <div class="rc-top"><span class="rc-key"></span>
-      <div class="rc-main"><div class="rc-name">${meta.name}${k === "fastest" ? '<span class="tag">Normal route</span>' : ""}</div>
-        <div class="rc-time">${fmtDuration(r.time_s)}</div><div class="rc-sub">${sub}</div></div>
+      <div class="rc-main"><div class="rc-name">${meta.name}${k === "fastest" ? '<span class="tag">Time first</span>' : ""}</div>
+        <div class="rc-time">${fmtDuration(r.time_s)}<small>Est. arrival ${arrivalTime(res.hour, r.time_s)}</small></div><div class="rc-sub">${sub}</div></div>
       ${scoreRing(r.score, r.label)}</div>
     <div class="rc-facts">${facts.join("")}</div></div>`;
 }
@@ -479,13 +596,22 @@ function renderResult() {
   $("#results").innerHTML = headline(res) + keys.map((k) => card(k, res)).join("") + `
     <div class="tabs" role="tablist">
       ${["overview", "directions"].map((t) => `<button class="tab ${state.tab === t ? "on" : ""}" data-t="${t}" role="tab" aria-selected="${state.tab === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
-    </div><div id="tab-body"></div><button class="share-btn text-btn" id="btn-share">Copy trip link</button>
+    </div><div id="tab-body" role="tabpanel"></div><div class="trip-actions"><button class="text-btn" id="btn-save">Save trip</button><button class="text-btn" id="btn-share">Copy trip link</button></div>
     <p class="note">Safety and travel times are estimates, based on available road data. Conditions can change.</p>`;
   $$(".route-card").forEach((c) => {
     c.onclick = () => select(c.dataset.k);
-    c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(c.dataset.k); } };
+    c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(c.dataset.k, true); } };
   });
-  $$(".tab").forEach((t) => (t.onclick = () => { state.tab = t.dataset.t; renderResult(); }));
+  $$(".tab").forEach((t) => (t.onclick = () => { state.tab = t.dataset.t; renderResult(); $(`.tab[data-t="${state.tab}"]`).focus(); }));
+  const saved = state.saved.some((t) => tripKey(t) === tripKey(state));
+  $("#btn-save").textContent = saved ? "Trip saved" : "Save trip";
+  $("#btn-save").disabled = saved;
+  $("#btn-save").onclick = () => {
+    const trip = { city: state.city, mode: state.mode, origin: {...state.origin}, destination: {...state.destination} };
+    const value = [trip, ...state.saved.filter((t) => tripKey(t) !== tripKey(trip))].slice(0, 5);
+    if (store.set("sr-saved-trips", value)) { state.saved = value; renderResult(); toast("Trip saved on this browser only"); }
+    else toast("Browser storage is unavailable. Use Copy trip link instead.");
+  };
   $("#btn-share").onclick = async () => {
     try { await navigator.clipboard.writeText(location.href); toast("Trip link copied"); }
     catch { toast("Copy the address from your browser to share this trip."); }
@@ -498,10 +624,12 @@ function renderResult() {
 
 function renderOverview(el, r, res) {
   const f = res.routes.fastest, isF = r === f;
-  const pct = (a, b) => (b ? 100 * (a / b - 1) : 0);
   const tile = (l, v, d, good) => `<div class="tile"><div class="l">${l}</div><div class="v">${v}</div>${d != null ? `<div class="d ${good == null ? "" : good ? "good" : "bad"}">${d}</div>` : ""}</div>`;
-  const dRisk = pct(r.risk, f.risk);
+  const reasons = routeReasons(r, f, res.is_dark);
+  const offsets = (res.snap_distance_m || []).map((distance, index) => ({distance, name: index ? "destination" : "starting point"})).filter((p) => p.distance > 75);
   el.innerHTML = `
+    <div class="route-insight"><div class="sec-title">${isF ? "About this route" : "Why this choice"}</div><ul>${reasons.map((reason) => `<li>${esc(reason)}</li>`).join("")}</ul></div>
+    ${offsets.length ? `<div class="access-note">${ICON.pin}<span>${offsets.map((point) => `Your ${point.name} is about ${fmtDist(point.distance)} from the route`).join(". ")}. Check how to reach the road; this connection is not included in the time estimate.</span></div>` : ""}
     <div class="tiles">
       ${tile("Safety score", `${r.score.toFixed(0)}<small style="font-size:13px;color:var(--ink-2)">/100</small>`, isF ? r.label : `${signed(r.score - f.score, 0)} vs fastest`, isF ? null : r.score >= f.score)}
       ${tile("Known blackspots", r.blackspots.length, "near this route", null)}
@@ -556,6 +684,10 @@ function renderDirections(el, r) {
   }).join("")}</ol>`;
   $$(".step", el).forEach((li) => {
     const s = r.directions[+li.dataset.i];
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.setAttribute("aria-label", `Show on map: ${s.text}`);
+    li.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); map.flyTo(s.lat, s.lon, 16.5); } };
     li.onmouseenter = () => map.highlight(s.lat, s.lon);
     li.onmouseleave = () => map.unhighlight();
     li.onclick = () => map.flyTo(s.lat, s.lon, 16.5);
@@ -583,5 +715,6 @@ function closeDrawer() { if (!$("#drawer").hidden) $("#btn-insights").focus(); $
 
 init().catch((e) => {
   console.error(e);
-  toast(`Couldn't start: ${e.message}. Is the backend running?`, 10000);
+  $("#results").innerHTML = `<div class="empty-state">${ICON.warn}<h3>Route planning is unavailable</h3><p>Please check your connection and try again.</p><button class="text-btn" id="btn-reload">Try again</button></div>`;
+  $("#btn-reload").onclick = () => location.reload();
 });

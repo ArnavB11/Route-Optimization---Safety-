@@ -100,8 +100,8 @@ class LineGraph:
 class RegionGraph:
     def __init__(self, region: str):
         d = DATA_DIR / region
-        z = np.load(d / "graph.npz")
-        self.a = {k: z[k] for k in z.files}
+        with np.load(d / "graph.npz") as z:
+            self.a = {k: z[k] for k in z.files}
         self.meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
         self.layers = json.loads((d / "layers.json").read_text(encoding="utf-8"))
         self.region = region
@@ -120,6 +120,11 @@ class RegionGraph:
         self.k_link, self.k_junction = cal["k_link"], cal["k_junction"]
         self.lg = {"car": LineGraph(a, a["edge_car"]), "walk": LineGraph(a, a["edge_walk"])}
         self.lg["two_wheeler"] = self.lg["car"]
+        self.snap_indexes = {}
+        for mode in ("car", "walk"):
+            ids = np.flatnonzero(self.lg[mode].has_out)
+            self.snap_indexes[mode] = (ids, cKDTree(self.node_xy[ids]))
+        self.snap_indexes["two_wheeler"] = self.snap_indexes["car"]
         self._cache = OrderedDict()
         self._cache_lock = RLock()
 
@@ -130,12 +135,11 @@ class RegionGraph:
 
     def snap(self, lat, lon, mode):
         xy = self.project(lat, lon)
-        ok = self.lg[mode].has_out
-        d, idx = self.node_tree.query(xy, k=12)
-        for dist, i in zip(d, idx):
-            if i < len(ok) and ok[i]:
-                return int(i), float(dist)
-        return int(idx[0]), float(d[0])
+        ids, tree = self.snap_indexes[mode]
+        if not len(ids):
+            raise RouteError("No roads are available for this travel mode")
+        distance, index = tree.query(xy)
+        return int(ids[index]), float(distance)
 
     # -- costs ----------------------------------------------------------------
     def costs(self, mode: str, hour: float) -> Costs:
