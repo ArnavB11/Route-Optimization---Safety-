@@ -2,8 +2,6 @@
 
 **Live app:** [route-optimization-safety.vercel.app](https://route-optimization-safety.vercel.app) · [Vercel deployment guide](docs/DEPLOYMENT.md)
 
-**Complete project explanation:** [Detailed documentation](docs/PROJECT_DOCUMENTATION.md) · [Shareable PDF](output/pdf/SafeRoute_Gujarat_Project_Documentation.pdf)
-
 A safety-focused route planner for Surat, Ahmedabad, Gandhinagar, Vadodara and Rajkot. Compare a **safer choice** with the **fastest estimated route**, see the additional travel time, and inspect known crash locations along the way.
 
 SVNIT | Project supervisor: Prof. Shriniwas Arkatkar
