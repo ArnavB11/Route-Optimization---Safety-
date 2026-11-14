@@ -444,3 +444,54 @@ button:disabled { cursor: default; opacity: .6; }
   .sheet-handle { position: relative; height: 6px; }
   .sheet-handle::after { content: ''; position: absolute; inset: -7px -22px; }
 }
+.survey-card { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 12px; }
+.survey-card details { margin: 12px 0; font-size: 13px; }
+.survey-card summary { cursor: pointer; padding: 8px 0; }
+.survey-card table { width: 100%; border-collapse: collapse; }
+.survey-card td, .survey-card th { padding: 6px; text-align: left; border-bottom: 1px solid var(--border); }
+.survey-card .braking-location { margin: 4px 0; display: block; }
+.survey-banner { position: fixed; top: 16px; left: 440px; max-width: calc(100vw - 520px); z-index: 6; background: var(--surface); color: var(--ink); border-left: 4px solid #8b5cf6; border-radius: 12px; padding: 8px 10px 8px 14px; display: flex; align-items: center; gap: 12px; box-shadow: var(--shadow-sm); font-size: 13px; }
+@media (max-width: 760px) { .survey-banner { left: 12px; right: 66px; top: 65px; max-width: none; font-size: 12px; } }
+
+/* Route following keeps the map in view. */
+.locate-status { margin:10px 0; padding:12px; border:1px solid var(--border); border-radius:12px; background:var(--surface-2); font-size:12px; line-height:1.5; }
+.locate-status p { margin:0 0 8px; }
+.locate-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.locate-actions .text-btn { padding:7px 10px; font-size:12px; }
+.locate-actions a { display:inline-flex; align-items:center; text-decoration:none; }
+.locate-actions a[hidden] { display:none; }
+.locate-status summary { cursor:pointer; margin:10px 0; color:var(--accent-ink); }
+.locate-status label { display:block; margin-top:10px; }
+#locate-address { width:100%; min-width:0; padding:7px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:7px; font-size:12px; }
+.navigation-start { display:grid; grid-template-columns:1fr auto; gap:8px; padding:0 0 14px; }
+.navigation-start .primary-btn { padding:10px 16px; }
+.navigation-start .text-btn { font-size:12px; padding:10px 12px; }
+.navigation-start p { grid-column:1 / -1; color:var(--ink-2); font-size:12px; margin:2px 0 0; line-height:1.5; }
+.navigation { position:fixed; inset:0; z-index:25; pointer-events:none; }
+.nav-bottom { pointer-events:auto; position:absolute; left:20px; bottom:20px; width:340px; max-height:70dvh; overflow:auto; border-radius:20px; box-shadow:var(--shadow); padding:18px; background:var(--surface); color:var(--ink); }
+.nav-label { font-size:10px; letter-spacing:.12em; font-weight:700; color:var(--accent-ink); margin-bottom:10px; }
+.nav-summary { display:flex; flex-direction:column; gap:4px; }
+#nav-time { font-size:22px; letter-spacing:-.4px; }
+#nav-remaining, #nav-instruction { color:var(--ink-2); font-size:13px; line-height:1.5; }
+#nav-instruction { margin:10px 0; }
+#nav-note { margin:12px 0 0; font-size:11px; color:var(--ink-2); line-height:1.5; }
+.nav-tools button { font-size:12px; padding:9px 12px; }
+.nav-stop { margin-top:12px; border-radius:999px; padding:10px; width:100%; border:1px solid var(--border); background:var(--surface-2); color:var(--bad-ink); font-weight:650; }
+.nav-location { width:36px; height:42px; color:#2687ed; filter:drop-shadow(0 2px 4px #0007); }
+.nav-location svg { display:block; width:100%; height:100%; }
+.nav-location.approximate { color:#78828e; }
+body.navigating .panel, body.navigating .map-ctl, body.navigating .risk-legend, body.navigating .map-view-btn, body.navigating .survey-banner { display:none; }
+#nav-location-actions { margin-top:12px; font-size:12px; }
+#nav-location-actions summary { cursor:pointer; color:var(--accent-ink); }
+#nav-location-help { font-size:12px; line-height:1.6; color:var(--ink-2); margin:12px 0 9px; }
+.nav-location-buttons { display:flex; flex-wrap:wrap; gap:6px; }
+.nav-location-buttons button, .nav-location-buttons a { padding:9px 12px; font-size:12px; }
+.nav-location-buttons a { display:inline-flex; align-items:center; text-decoration:none; }
+.nav-location-buttons a[hidden] { display:none; }
+.nav-url-label { display:block; font-size:11px; color:var(--ink-2); margin-top:12px; }
+#nav-location-url { width:100%; min-width:0; margin:5px 0 0; padding:8px; font-size:12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink); }
+@media(max-width:760px) {
+  .nav-bottom { left:12px; right:12px; width:auto; bottom:max(12px,env(safe-area-inset-bottom)); max-height:55dvh; padding:14px; }
+  #nav-time { font-size:19px; }
+  body.navigating .maplibregl-ctrl-bottom-right { top:15px; bottom:auto; }
+}

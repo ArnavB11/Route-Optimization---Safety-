@@ -1,6 +1,8 @@
+import { NavigationUI } from "./navigation-ui.js?v=live-location";
+import { PlannerLocation } from "./planner-location.js";
 import { api, photon } from "./api.js";
 import { breakdownBar } from "./charts.js";
-import { MapView } from "./map.js?v=20261025";
+import { MapView } from "./map.js?v=20261114-arrow";
 import { arrivalTime, parsePoint, routeReasons, savedTrips, tripKey, validPoint } from "./trip.js";
 import {
   $, $$, ICON, cssVar, debounce, esc, fmtDist, fmtDuration, fmtHour, kindIcon, riskLevel, signed, store,
@@ -55,7 +57,7 @@ function cityForRegion(reg, lat, lon) {
 }
 
 // ---------------------------------------------------------------------------
-let map;
+let map, navigation, plannerLocation;
 
 async function init() {
   applyTheme(state.theme, false);
@@ -70,6 +72,30 @@ async function init() {
   map = new MapView($("#map"), {
     center: city.center, zoom: city.zoom, theme: state.theme,
     onMapClick: onMapClick, onPinDrag: onPinDrag, onRouteClick: (k) => select(k),
+  });
+  navigation = new NavigationUI({
+    map, toast,
+    reroute: (trip, fix, signal) => api.route({origin:{lat:fix.lat,lon:fix.lon},destination:trip.destination,
+      mode:trip.result.mode,hour:nowHour(),safety_weight:trip.safety,max_detour:trip.detour,include_analysis:false},signal),
+    onRoute: (result, fix, selected) => {
+      state.result = result; state.selected = result.routes[selected] ? selected : "safest";
+      state.origin = {lat:fix.lat,lon:fix.lon,label:"Current location"};
+      $("#in-origin").value = state.origin.label; map.setPin("origin", state.origin);
+      renderResult(); drawResult(false); updateUrl();
+    },
+  });
+  plannerLocation = new PlannerLocation({
+    geolocation:navigator.geolocation, permissions:navigator.permissions, secure:window.isSecureContext,
+    onState:showPlannerLocation,
+    onLocation:async (position) => {
+      const {latitude:lat,longitude:lon,accuracy} = position.coords;
+      if (!regionOf(lat,lon)) {
+        showPlannerLocation({kind:"outside", message:"Your device returned a location outside our supported cities. Choose a starting point on the map."}); return;
+      }
+      try {
+        if (await setPoint("origin", {lat,lon,label:accuracy > 35 ? "Approximate location" : "Your location"})) maybePlan();
+      } catch { showPlannerLocation({kind:"unavailable", message:"Couldn’t set the starting point. Retry or choose it on the map."}); }
+    },
   });
   renderCityChips();
   bindControls();
@@ -242,6 +268,16 @@ function bindControls() {
     history.replaceState(null, "", `?city=${encodeURIComponent(state.city)}`); renderEmpty();
   };
   $("#btn-locate").onclick = locate;
+  $("#locate-retry").onclick = locate;
+  $("#locate-cancel").onclick = () => plannerLocation.cancel();
+  $("#locate-approximate").onclick = () => plannerLocation.choose();
+  $("#locate-browser").onclick = () => plannerLocation.cancel();
+  $("#locate-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(location.href); toast("Page link copied. Paste it in your browser and choose Use my location."); }
+    catch { $("#locate-address").focus(); $("#locate-address").select(); toast("Copy the selected address into your browser."); }
+  };
+  window.addEventListener("pagehide", () => plannerLocation.cancel());
+  $("#in-origin").addEventListener("input", () => plannerLocation.cancel());
   $("#btn-map-view").onclick = () => {
     $("#panel").classList.toggle("map-only");
     const hidden = $("#panel").classList.contains("map-only");
@@ -278,6 +314,8 @@ function bindControls() {
   $("#btn-theme").onclick = () => applyTheme(state.theme === "dark" ? "light" : "dark", true);
   $("#btn-recenter").onclick = () => fitSelected();
   $("#btn-insights").onclick = openDrawer;
+  $("#btn-surveys").onclick = openSurveys;
+  $("#btn-clear-survey").onclick = () => displaySurvey(null);
   $("#btn-drawer-close").onclick = closeDrawer;
   $("#drawer-scrim").onclick = closeDrawer;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
@@ -372,26 +410,30 @@ async function onPinDrag(role, lat, lon) {
   else map.setPin(role, state[role]);
 }
 
-let locationRevision = 0;
 function locate() {
-  if (!navigator.geolocation) return toast("Location isn't available in this browser.");
-  resetSearch();
-  const ticket = ++locationRevision;
-  const previous = $("#in-origin").value;
-  $("#in-origin").value = "Finding your location…";
-  $("#btn-locate").disabled = true;
-  const failed = (message) => {
-    if (ticket !== locationRevision) return;
-    $("#in-origin").value = previous; $("#btn-locate").disabled = false; toast(message);
-  };
-  navigator.geolocation.getCurrentPosition(async (position) => {
-    if (ticket !== locationRevision) return;
-    const { latitude: lat, longitude: lon } = position.coords;
-    if (!regionOf(lat, lon)) return failed("Your location is outside our supported cities. Choose a starting point on the map.");
-    $("#btn-locate").disabled = false;
-    if (await setPoint("origin", { lat, lon, label: "Your location" })) maybePlan();
-  }, () => failed("Couldn't get your location. You can choose a starting point on the map."),
-  { enableHighAccuracy: true, timeout: 10000 });
+  resetSearch(); navigation?.stop(false);
+  plannerLocation.start();
+}
+
+function showPlannerLocation(status) {
+  const busy = plannerLocation?.active || status.kind === "acquiring";
+  $("#btn-locate").disabled = busy;
+  $("#btn-locate").setAttribute("aria-busy", String(busy));
+  $("#locate-status").hidden = ["idle","selected"].includes(status.kind);
+  $("#locate-message").textContent = status.message;
+  $("#locate-approximate").hidden = status.kind !== "approximate";
+  $("#locate-cancel").hidden = !busy;
+  $("#locate-retry").hidden = status.kind === "acquiring";
+  const url = location.href;
+  $("#locate-browser").hidden = !/Windows/i.test(navigator.userAgent);
+  $("#locate-browser").href = `microsoft-edge:${url}`;
+  $("#locate-address").value = url;
+  if (status.position) {
+    const c = status.position.coords;
+    map.navigationPosition([c.longitude,c.latitude],c.accuracy,true);
+    map.followPosition([c.longitude,c.latitude],c.accuracy);
+    $("#locate-approximate").textContent = `Use approximate location (±${c.accuracy >= 1000 ? (c.accuracy/1000).toFixed(1)+" km" : Math.round(c.accuracy)+" m"})`;
+  } else map.navigationPosition(null);
 }
 
 // ---------------------------------------------------------------------------
@@ -400,6 +442,9 @@ const replan = debounce(maybePlan, 280);
 
 async function plan() {
   if (!state.origin || !state.destination) return;
+  navigation?.stop(false);
+  displaySurvey(null);
+  map.unhighlight();
   state.pending?.abort();
   const ctl = new AbortController();
   state.pending = ctl;
@@ -444,8 +489,8 @@ function updateUrl() {
 }
 
 function clearRoute() {
-  locationRevision++;
-  $("#btn-locate").disabled = false;
+  navigation?.stop(false);
+  plannerLocation?.cancel();
   history.replaceState(null, "", `?city=${encodeURIComponent(state.city)}`);
   $("#btn-plan").disabled = false;
   $("#btn-plan").textContent = "Find routes";
@@ -482,6 +527,7 @@ function fitSelected() {
 }
 
 function select(k, focus = false) {
+  navigation?.stop(false);
   if (!state.result?.routes[k]) return;
   state.selected = k;
   updateUrl();
@@ -593,11 +639,18 @@ function renderResult() {
   const keys = res.comparison.same_route ? ["fastest"] : routeKeys();
   if (res.comparison.same_route) state.selected = "fastest";
   const sel = res.routes[state.selected];
-  $("#results").innerHTML = headline(res) + keys.map((k) => card(k, res)).join("") + `
+  $("#results").innerHTML = `<div class="navigation-start"><button id="btn-navigate" class="primary-btn">Follow my location</button><button id="btn-preview-route" class="text-btn">Preview route</button><p>Keep your selected ${esc(ROUTE_META[state.selected].name.toLowerCase())} route on the map and see your location as you move.</p></div>` + headline(res) + keys.map((k) => card(k, res)).join("") + `
     <div class="tabs" role="tablist">
       ${["overview", "directions"].map((t) => `<button class="tab ${state.tab === t ? "on" : ""}" data-t="${t}" role="tab" aria-selected="${state.tab === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
     </div><div id="tab-body" role="tabpanel"></div><div class="trip-actions"><button class="text-btn" id="btn-save">Save trip</button><button class="text-btn" id="btn-share">Copy trip link</button></div>
     <p class="note">Safety and travel times are estimates, based on available road data. Conditions can change.</p>`;
+  const startNavigation = (preview) => {
+    if (state.pending) return toast("Please wait for the updated route.");
+    displaySurvey(null); resetSearch();
+    navigation.start({result:state.result,selected:state.selected,destination:{...state.destination},safety:state.safety,detour:state.detour},preview);
+  };
+  $("#btn-navigate").onclick = () => startNavigation(false);
+  $("#btn-preview-route").onclick = () => startNavigation(true);
   $$(".route-card").forEach((c) => {
     c.onclick = () => select(c.dataset.k);
     c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(c.dataset.k, true); } };
@@ -628,6 +681,7 @@ function renderOverview(el, r, res) {
   const reasons = routeReasons(r, f, res.is_dark);
   const offsets = (res.snap_distance_m || []).map((distance, index) => ({distance, name: index ? "destination" : "starting point"})).filter((p) => p.distance > 75);
   el.innerHTML = `
+    ${r.field_surveys?.length ? `<div class="access-note">${ICON.route}<span>Field observations nearby: ${r.field_surveys.map((s) => `${esc(s.name)} (${s.matched_km} km)`).join(", ")}. Recorded car speeds provide context; they do not change this safety score.</span></div>` : ""}
     <div class="route-insight"><div class="sec-title">${isF ? "About this route" : "Why this choice"}</div><ul>${reasons.map((reason) => `<li>${esc(reason)}</li>`).join("")}</ul></div>
     ${offsets.length ? `<div class="access-note">${ICON.pin}<span>${offsets.map((point) => `Your ${point.name} is about ${fmtDist(point.distance)} from the route`).join(". ")}. Check how to reach the road; this connection is not included in the time estimate.</span></div>` : ""}
     <div class="tiles">
@@ -696,6 +750,8 @@ function renderDirections(el, r) {
 
 // ---------------------------------------------------------------------------
 async function openDrawer() {
+  $("#drawer h2").textContent = "About safety";
+  $("#drawer").setAttribute("aria-label", "About safety");
   $("#drawer").hidden = false; $("#drawer-scrim").hidden = false;
   $("#btn-drawer-close").focus();
   $("#drawer-body").innerHTML = `
@@ -709,6 +765,37 @@ async function openDrawer() {
     <p>Traffic, roadworks and lighting may differ from the estimates. We do not have live traffic, incident or crime feeds. Follow road signs and local conditions.</p>
     <div class="sec-title">Our project</div>
     <p>Our team focuses on safety. Travel time helps you judge the detour. Air quality and traffic optimisation are outside this team's scope.</p>`;
+}
+
+function displaySurvey(survey) {
+  map.showSurvey(survey);
+  $("#survey-banner").hidden = !survey;
+  $("#survey-label").textContent = survey ? `Recorded car trip · ${survey.name}` : "";
+  if (!survey) map.unhighlight();
+}
+
+async function openSurveys() {
+  $("#drawer h2").textContent = "Field trips";
+  $("#drawer").setAttribute("aria-label", "Field trips");
+  $("#drawer").hidden = false; $("#drawer-scrim").hidden = false;
+  $("#btn-drawer-close").focus();
+  $("#drawer-body").innerHTML = '<p>Loading recorded trips…</p>';
+  try {
+    const {surveys} = await api.surveys();
+    if ($("#drawer").hidden || $("#drawer h2").textContent !== "Field trips") return;
+    $("#drawer-body").innerHTML = `<p>Four car trips shared by our professor. Explore recorded speeds and possible sharp-braking locations. These are observations from individual trips, not crash records.</p><button id="clear-survey" class="text-btn">Clear field trip from map</button>` + surveys.map((s) => `<section class="survey-card"><h3>${esc(s.name)}</h3><p>${new Date(s.start_utc).toLocaleDateString("en-IN",{timeZone:"Asia/Kolkata"})} · ${s.distance_km} km recorded · ${s.recorded_duration_min} min excluding recording gaps</p><div class="tiles"><div class="tile"><div class="l">Median speed</div><div class="v">${s.median_speed_kph} <small>km/h</small></div></div><div class="tile"><div class="l">Braking candidates</div><div class="v">${s.braking_candidates.length}</div></div></div><button class="text-btn view-survey" data-id="${s.id}">View recorded trip</button><details><summary>Speed along the trip & data quality</summary><p>${s.quality.accepted_rows} usable GPS readings; ${s.quality.rejected_rows} rejected; ${s.quality.recording_gaps} recording gaps. CSV and KML median position difference: ${s.quality.kml_median_offset_m ?? "unavailable"} m. Map follows the CSV recording.</p><table><thead><tr><th>Recorded distance</th><th>Median speed</th></tr></thead><tbody>${s.speed_profile.map((p) => `<tr><td>${p.km}–${p.km+1} km</td><td>${p.median_kph} km/h</td></tr>`).join("")}</tbody></table></details>${s.braking_candidates.length ? `<details><summary>Possible sharp-braking locations</summary><p>GPS speed drops need field review. They do not establish a crash or unsafe driving.</p>${s.braking_candidates.map((e,i) => `<button class="text-btn braking-location" data-id="${s.id}" data-event="${i}">${e.speed_before_kph.toFixed(0)} to ${e.speed_after_kph.toFixed(0)} km/h · ${new Date(e.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})}</button>`).join("")}</details>` : ""}</section>`).join("");
+    $("#clear-survey").onclick = () => displaySurvey(null);
+    $$(".view-survey").forEach((b) => b.onclick = () => {
+      const s = surveys.find((s) => s.id === b.dataset.id);
+      closeDrawer(); clearRoute(); renderEmpty(); displaySurvey(s);
+      if (innerWidth <= 760 && !$("#panel").classList.contains("map-only")) $("#btn-map-view").click();
+      toast("Purple line: recorded car trip. Gaps are left disconnected.",7000);
+    });
+    $$(".braking-location").forEach((b) => b.onclick = () => {
+      const s = surveys.find((s) => s.id === b.dataset.id), e = s.braking_candidates[+b.dataset.event];
+      closeDrawer(); clearRoute(); renderEmpty(); displaySurvey(s); map.flyTo(e.lat,e.lon,16); map.highlight(e.lat,e.lon);
+    });
+  } catch { $("#drawer-body").innerHTML = '<p>Field trips are unavailable. Please try again.</p>'; }
 }
 
 function closeDrawer() { if (!$("#drawer").hidden) $("#btn-insights").focus(); $("#drawer").hidden = true; $("#drawer-scrim").hidden = true; }

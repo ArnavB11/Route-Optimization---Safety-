@@ -1,0 +1,11 @@
+.git
+.venv
+.pytest_cache
+**/__pycache__
+*.pyc
+tmp
+backend/data/raw
+backend/tests
+backend/pipeline
+frontend/tests
+docs

@@ -152,3 +152,13 @@ def test_high_safety_preference_keeps_time_limit(g, mode, cap):
     for point, coords in zip(result["snapped_points"], [safe["geometry"][0], safe["geometry"][-1]]):
         assert point["lon"] == pytest.approx(coords[0], abs=1e-5)
         assert point["lat"] == pytest.approx(coords[1], abs=1e-5)
+
+
+def test_navigation_offsets_cover_route(plan_night):
+    for route in plan_night['routes'].values():
+        steps = route['directions']
+        offsets = [step['distance_from_start_m'] for step in steps]
+        assert offsets == sorted(offsets)
+        assert offsets[0] == 0
+        assert offsets[-1] == pytest.approx(route['distance_m'])
+        assert sum(step['time_s'] for step in steps) == pytest.approx(route['time_s'])

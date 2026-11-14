@@ -131,9 +131,13 @@ def route(body: dict):
     if not isinstance(analysis, bool):
         raise ApiError(400, "include_analysis must be true or false")
     try:
-        return Planner(get_graph(r1)).plan(
+        result = Planner(get_graph(r1)).plan(
             o_lat, o_lon, d_lat, d_lon, mode=mode, hour=hour,
             safety_weight=safety, max_detour=detour, alternatives=analysis)
+        from .surveys import route_evidence
+        for item in result["routes"].values():
+            item["field_surveys"] = route_evidence(item["geometry"], mode)
+        return result
     except RouteError as ex:
         raise ApiError(422, str(ex))
 

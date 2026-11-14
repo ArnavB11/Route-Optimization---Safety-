@@ -48,6 +48,12 @@ def network(region: str, mode: str = "car", hour: float = Query(21, ge=0, lt=24)
     return api.network_handler(region, mode, hour)
 
 
+@app.get("/api/surveys")
+def surveys():
+    from .surveys import public_surveys
+    return public_surveys()
+
+
 @app.get("/api/methodology")
 def methodology():
     return api.methodology()

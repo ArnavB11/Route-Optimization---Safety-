@@ -9,6 +9,7 @@ async function req(path, opts) {
 }
 
 export const api = {
+  surveys: () => req("/api/surveys"),
   cities: () => req("/api/cities"),
   search: (q, city, signal) => req(`/api/search?q=${encodeURIComponent(q)}${city ? `&city=${encodeURIComponent(city)}` : ""}`, { signal }),
   reverse: (lat, lon) => req(`/api/reverse?lat=${lat}&lon=${lon}`),

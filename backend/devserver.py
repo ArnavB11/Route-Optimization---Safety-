@@ -45,6 +45,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(api.layers, p.rsplit("/", 1)[1])
         if p.startswith("/api/network/"):
             return self._json(api.network_handler, p.rsplit("/", 1)[1], q.get("mode", "car"), q.get("hour", 21))
+        if p == "/api/surveys":
+            from app.surveys import public_surveys
+            return self._json(public_surveys)
         if p == "/api/methodology":
             return self._json(api.methodology)
         f = (FRONTEND_DIR / (p.lstrip("/") or "index.html")).resolve()

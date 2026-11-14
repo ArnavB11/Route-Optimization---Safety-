@@ -54,8 +54,9 @@ def directions(g, path, costs, mode):
                 cur = new_step("roundabout", None, e, node, "Enter the roundabout")
             elif in_roundabout and not ra:
                 in_roundabout = False
-                cur["text"] = f"At the roundabout, take the exit onto {road(e)}"
-                cur["road"] = road(e)
+                steps.append(cur)
+                cur = new_step("exit_roundabout", None, e, node,
+                               f"Leave the roundabout onto {road(e)}")
             elif not in_roundabout and is_j and (ttype != M.TURN_STRAIGHT or (name_changed and named(e))):
                 steps.append(cur)
                 if ttype == M.TURN_STRAIGHT:
@@ -85,7 +86,10 @@ def directions(g, path, costs, mode):
                    "distance_m": 0.0, "time_s": 0.0, "risk": 0.0,
                    "lat": float(a["node_lat"][last]), "lon": float(a["node_lon"][last])})
     ref = costs.ref_risk_per_km
+    offset = 0.0
     for s in merged:
+        s["distance_from_start_m"] = offset
+        offset += s["distance_m"]
         km = s["distance_m"] / 1000
         s["relative_risk"] = round((s.pop("risk") / km) / ref, 2) if km > 0.02 else None
     return merged

@@ -10,7 +10,7 @@ const EMPTY = { type: "FeatureCollection", features: [] };
 export class MapView {
   constructor(el, { center, zoom, theme, onMapClick, onPinDrag, onRouteClick }) {
     this.theme = theme;
-    this.data = { routes: EMPTY, runs: EMPTY, network: EMPTY, police: EMPTY, hospital: EMPTY, cctv: EMPTY };
+    this.data = { locationAccuracy: EMPTY, survey: EMPTY, routes: EMPTY, runs: EMPTY, network: EMPTY, police: EMPTY, hospital: EMPTY, cctv: EMPTY };
     this.visible = { risk: false, police: false, hospital: false, cctv: false, blackspots: true };
     this.bsMarkers = [];
     this.blackspots = [];
@@ -31,6 +31,7 @@ export class MapView {
     // overlays only need the style, not every tile, so don't wait for "load"
     this.ready = new Promise((res) => this.map.once("style.load", res));
     this.map.on("click", (e) => {
+      if (this.navigating) return;
       const hits = this.map.queryRenderedFeatures(e.point, { layers: ["route-alt", "route-alt-hit", "poi-police", "poi-hospital", "poi-cctv"].filter((l) => this.map.getLayer(l)) });
       const route = hits.find((h) => h.layer.id.startsWith("route-alt"));
       if (route) return this.handlers.onRouteClick?.(route.properties.key);
@@ -69,6 +70,9 @@ export class MapView {
     for (const [id, data] of Object.entries(this.data)) {
       if (!m.getSource(id)) m.addSource(id, { type: "geojson", data });
     }
+    m.addLayer({ id: "location-accuracy", type: "fill", source: "locationAccuracy", paint: { "fill-color": "#2687ed", "fill-opacity": .12 } });
+    m.addLayer({ id: "location-accuracy-outline", type: "line", source: "locationAccuracy", paint: { "line-color": "#2687ed", "line-width": 1, "line-opacity": .5 } });
+    m.addLayer({ id: "field-survey", type: "line", source: "survey", paint: {"line-color": "#8b5cf6", "line-width": 5, "line-opacity": .85} });
     const levelColor = ["match", ["get", "level"], 0, c.good, 1, c.good, 2, c.warning, 3, c.serious, c.critical];
     m.addLayer({
       id: "network", type: "line", source: "network", layout: { "line-cap": "round", visibility: this.visible.risk ? "visible" : "none" },
@@ -121,6 +125,11 @@ export class MapView {
     })) });
   }
 
+  showSurvey(survey) {
+    this._set("survey", survey ? {type:"FeatureCollection",features:survey.geometry.map((coordinates) => ({type:"Feature",properties:{},geometry:{type:"LineString",coordinates}}))} : EMPTY);
+    if (survey) this.fit(survey.geometry.flat(), innerWidth <= 760 ? {top:70,bottom:120,left:25,right:25} : {top:60,bottom:60,left:450,right:60});
+  }
+
   clearRoutes() { this._set("routes", EMPTY); this._set("runs", EMPTY); }
 
   fit(coords, padding) {
@@ -130,6 +139,38 @@ export class MapView {
   }
 
   flyTo(lat, lon, zoom = 13) { this.map.flyTo({ center: [lon, lat], zoom, duration: 900 }); }
+
+  setNavigationMode(active) {
+    this.navigating = active;
+    this._ctx?.remove();
+    Object.values(this.pins).forEach((pin) => pin?.setDraggable(!active));
+  }
+
+  navigationPosition(coords, accuracy = 0, approximate = false, heading = 0) {
+    if (!coords) { this._navMarker?.remove(); this._set("locationAccuracy", EMPTY); return; }
+    if (Number.isFinite(accuracy) && accuracy > 0) {
+      const ring = Array.from({length:65}, (_,i) => {
+        const theta = i / 64 * Math.PI * 2;
+        return [coords[0] + accuracy * Math.cos(theta) / (111195 * Math.max(.01,Math.cos(coords[1]*Math.PI/180))), coords[1] + accuracy * Math.sin(theta) / 111195];
+      });
+      this._set("locationAccuracy", {type:"FeatureCollection",features:[{type:"Feature",properties:{},geometry:{type:"Polygon",coordinates:[ring]}}]});
+    } else this._set("locationAccuracy", EMPTY);
+    if (!this._navMarker) {
+      const el = document.createElement("div");
+      el.className = "nav-location";
+      el.setAttribute("aria-label", "Your current location");
+      el.innerHTML = '<svg viewBox="0 0 36 42" aria-hidden="true"><path d="M18 3L33 37L18 29L3 37Z" fill="currentColor" stroke="white" stroke-width="3" stroke-linejoin="round"/></svg>';
+      this._navMarker = new maplibregl.Marker({element: el, rotationAlignment:"map"});
+    }
+    this._navMarker.getElement().classList.toggle("approximate", approximate);
+    this._navMarker.setRotation(Number.isFinite(heading) ? heading : 0).setLngLat(coords).addTo(this.map);
+  }
+
+  followPosition(coords, accuracy = 0) {
+    const zoom = accuracy > 35 ? Math.max(3, Math.min(15, Math.log2(40075016 * Math.cos(coords[1]*Math.PI/180) * 300 / (512 * accuracy * 4)))) : 16.5;
+    const mobile = innerWidth <= 760;
+    this.map.easeTo({center:coords, zoom, duration:700, padding:mobile ? {top:35,bottom:240,left:20,right:20} : {top:60,bottom:60,left:400,right:60}});
+  }
 
   // ---- layers ----------------------------------------------------------
   setNetwork(geojson) { this._set("network", geojson); }
@@ -155,7 +196,7 @@ export class MapView {
       el.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 2.5l10 17.5H2z" fill="${cssVar("--st-critical")}" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M12 9v5M12 16.8h.01" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>`;
       el.style.display = this.visible.blackspots ? "" : "none";
       const mk = new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([b.lon, b.lat]).addTo(this.map);
-      el.addEventListener("click", (ev) => { ev.stopPropagation(); this.blackspotPopup(b); });
+      el.addEventListener("click", (ev) => { ev.stopPropagation(); if (!this.navigating) this.blackspotPopup(b); });
       return mk;
     });
   }

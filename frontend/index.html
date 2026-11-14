@@ -54,6 +54,11 @@
         </button>
       </div>
 
+      <section id="locate-status" class="locate-status" aria-label="Device location status" hidden>
+        <p id="locate-message" role="status" aria-live="polite"></p>
+        <div class="locate-actions"><button id="locate-approximate" class="text-btn" hidden>Use approximate location</button><button id="locate-retry" class="text-btn">Retry location</button><button id="locate-cancel" class="text-btn">Cancel</button></div>
+        <details><summary>Location not working?</summary><p>Allow location in your browser and device settings. If no permission prompt appears here, open this page in a regular browser.</p><div class="locate-actions"><a id="locate-browser" class="text-btn" hidden>Open in Microsoft Edge</a><button id="locate-copy" class="text-btn">Copy page link</button></div><label for="locate-address">Page address</label><input id="locate-address" type="text" readonly spellcheck="false"></details>
+      </section>
       <div class="modes" role="tablist" aria-label="Travel mode">
         <button role="tab" data-mode="car" class="mode active" aria-selected="true">
           <svg viewBox="0 0 24 24"><path d="M5 17h14M5 17v2M19 17v2M4 13l1.6-4.6A2 2 0 017.5 7h9a2 2 0 011.9 1.4L20 13M4 13h16v4H4z"/><circle cx="7.5" cy="15" r=".6"/><circle cx="16.5" cy="15" r=".6"/></svg>
@@ -100,6 +105,7 @@
 
   <!-- ===== Map controls ===== -->
   <div class="map-ctl" id="map-ctl">
+    <button class="fab" id="btn-surveys" aria-label="Field trips" title="Professor’s field trips"><svg viewBox="0 0 24 24"><path d="M4 19L9 5l6 14 5-14M2 19h4M18 5h4"/></svg></button>
     <button class="fab" id="btn-layers" aria-label="Map layers" title="Layers">
       <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
     </button>
@@ -130,7 +136,25 @@
 
   <button id="btn-map-view" class="map-view-btn" aria-controls="panel" aria-expanded="true">Show map</button>
 
+  <div id="survey-banner" class="survey-banner" hidden><span id="survey-label"></span><button id="btn-clear-survey" class="icon-btn" aria-label="Clear recorded trip">×</button></div>
+
   <div class="toast" id="toast" role="status" hidden></div>
+
+  <section id="navigation" class="navigation" aria-label="Live route location" hidden>
+    <div class="nav-bottom">
+      <div class="nav-label" id="nav-label">LIVE LOCATION</div>
+      <div class="nav-summary"><strong id="nav-time"></strong><span id="nav-remaining"></span></div>
+      <p id="nav-instruction" role="status" aria-live="polite">Finding your location…</p>
+      <div class="nav-tools"><button id="nav-follow" class="text-btn">Following location</button></div>
+      <details id="nav-location-actions" hidden><summary>Location help</summary>
+        <p id="nav-location-help"></p>
+        <div class="nav-location-buttons"><a id="nav-open-browser" class="text-btn" hidden>Open in Microsoft Edge</a><button id="nav-location-copy" class="text-btn">Copy trip link</button><button id="nav-location-retry" class="text-btn">Retry location</button><button id="nav-location-preview" class="text-btn">Preview instead</button></div>
+        <label class="nav-url-label" for="nav-location-url">Trip address — paste into your browser</label><input id="nav-location-url" type="text" readonly spellcheck="false">
+      </details>
+      <p id="nav-note">Keep this page open to update your location.</p>
+      <button id="nav-stop" class="nav-stop">Stop tracking</button>
+    </div>
+  </section>
 
   <!-- ===== Insights drawer ===== -->
   <div class="drawer-scrim" id="drawer-scrim" hidden></div>
@@ -140,6 +164,6 @@
   </aside>
 
   <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script type="module" src="js/app.js?v=20261025"></script>
+  <script type="module" src="js/app.js?v=20261114-planner-location"></script>
 </body>
 </html>
