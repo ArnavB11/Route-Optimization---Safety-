@@ -88,7 +88,7 @@ Each edge gets an exposure proxy `AADT_c` by class (trunk 40 000 … residential
 N_e = k · f_c · CMF · L_km · AADT_c · 365 / 10⁶        N_v = k_j · J_v · AADT_enter · 365 / 10⁶
 ```
 
-`k_j/k` is set so junctions carry 35 % of crashes (an urban assumption; the national figure is 22 % because it includes rural highways). `k` is then set so that ΣN_e + ΣN_v equals the city's 2022 MoRTH total (Ahmedabad region 1 882 = 1 711 × 1.10 for Gandhinagar; Surat 683; Vadodara 478; Rajkot 498). The absolute risk per trip is therefore anchored to real counts, which is what makes the "estimated crashes per million trips" figure meaningful.
+`k_j/k` is set so junctions carry 35 % of crashes (an urban assumption; the national figure is 22 % because it includes rural highways). `k` is then set so that ΣN_e + ΣN_v equals the city's 2022 MoRTH total (Ahmedabad region 1 882 = 1 711 × 1.10 for Gandhinagar; Surat 683; Vadodara 478; Rajkot 498). This anchors the crash-frequency calibration to aggregate historical counts. It does not validate individual street risks or the combined crash-harm and security metric as an observed crash probability.
 
 ### 3.4 Empirical-Bayes blackspot adjustment
 
@@ -126,7 +126,7 @@ day:   0.6·0.30·(1−activity) + 0.5·0.15·(1−e^{−d_police/1500})
 score = 100 · exp(−ln(100/70) · r / r̄)
 ```
 
-Here *r* is the route's risk per km and *r̄* is the **traffic-weighted** (per vehicle-km) network average for the same mode and hour. So **70 means an average road**: higher is safer, and 100 means zero risk. Labels: ≥ 82 Very safe, ≥ 72 Safe, ≥ 60 Moderate, ≥ 45 Risky.
+Here *r* is the route's risk per km and *r̄* is the **traffic-weighted** (per vehicle-km) network average for the same mode and hour. A score of **70 corresponds to the model reference**. Higher scores indicate lower estimated risk; the mathematical zero-risk limit is 100, not a guarantee of safety. Current labels in code are Lower risk at 72 or above, Moderate from 60 to below 72, and Higher risk below 60.
 
 ---
 
@@ -156,11 +156,11 @@ D₀, T₀ and R₀ are the **fastest route's** totals for the same origin and d
 
 * Search over the line graph with turn-aware transition costs (§2, §3.2).
 * Heuristic `h(e) = |x_dst(e) − x_target| · [W_t/(v_max·T₀) + W_s·r_min/R₀]`, where `r_min` is the smallest risk per metre on any edge. Straight-line distance never exceeds path length, travel at `v_max` is the fastest possible, and transition costs are ≥ 0, so `h` is a lower bound: **admissible**, and A* returns the optimum. `tests/test_routing.py` checks this against exact Dijkstra distances, and the validation run confirms A* = Dijkstra on every sampled weight.
-* Typical response is 0.3–1.2 s for a full plan (fastest + safest + shortest + balanced + Pareto sampling) on the 207 k-edge Ahmedabad graph, in pure Python. SciPy's C Dijkstra is used for batch Pareto sampling and the detour bisection.
+* An earlier local performance observation was 0.3–1.2 s for a full plan (fastest + safest + shortest + balanced + Pareto sampling) on the 207 k-edge Ahmedabad graph. This is not a current production latency guarantee; serverless cold starts and concurrency can change it. SciPy's C Dijkstra is used for batch Pareto sampling and the detour bisection.
 
 ### 5.3 Detour cap ("sanity threshold", Q9)
 
-Minimise `λ·R/R₀ + (1−λ)·T/T₀`. If the result exceeds `(1+τ)·T₀` (τ = 25 % by default), bisect λ downwards. This is Lagrangian relaxation of the time-budget constraint, and gives the safest route that still fits the budget.
+Minimise `λ·R/R₀ + (1−λ)·T/T₀`. If the result exceeds `(1+τ)·T₀` (τ = 25 % by default), bisect λ downwards. The implementation performs six bounded bisection iterations and retains a checked feasible candidate. This is a weighted-cost approximation to the time-budget problem, not a proof of the globally minimum-risk path among all feasible routes.
 
 ### 5.4 Pareto front and the *Balanced* route (Q15)
 
