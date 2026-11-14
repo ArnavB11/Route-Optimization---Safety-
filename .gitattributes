@@ -1,2 +1,2 @@
 # Preserve professor-supplied inputs byte-for-byte for provenance checksums.
-backend/datasets/field_surveys/source/** -text
+backend/datasets/field_surveys/source/** -text whitespace=cr-at-eol

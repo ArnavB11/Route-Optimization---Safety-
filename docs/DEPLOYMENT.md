@@ -1,5 +1,7 @@
 # Vercel deployment
 
+Live app: [route-optimization-safety.vercel.app](https://route-optimization-safety.vercel.app). The initial production deployment used `balodi` commit `f215a5b`. Public API checks confirmed five ready cities, four survey corridors, and successful fastest/safer route calculation for a Surat trip.
+
 Import this repository into Vercel with repository root `./` and framework **FastAPI**. The root `app.py` exports the same application as the local server. `pyproject.toml` selects Python 3.12 and runtime dependencies. `vercel.json` configures a 60-second function limit and excludes development inputs. No API keys or database setup are required.
 
 Deploy `balodi` when reviewing current work. The owner’s integration workflow remains `balodi` to `main`; use `main` as production after merging when adopting automatic production deploys. Do not deploy just `frontend/`: the same-origin `/api/*` routes need the Python backend and processed graph files.
