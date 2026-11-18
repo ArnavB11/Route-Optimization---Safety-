@@ -1,11 +1,21 @@
 // Thin client for the SafeRoute backend.
 async function req(path, opts) {
-  const r = await fetch(path, opts);
-  let body = null;
-  try { body = await r.json(); } catch (e) { /* non-JSON */ }
-  if (!r.ok) throw new Error(typeof body?.detail === "string" ? body.detail : `Request failed (${r.status}). Please try again.`);
-  if (!body) throw new Error("The server returned an empty response. Please try again.");
-  return body;
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), 45000);
+  const signal = opts?.signal ? AbortSignal.any([opts.signal, timeout.signal]) : timeout.signal;
+  try {
+    const r = await fetch(path, { ...opts, signal });
+    let body = null;
+    try { body = await r.json(); } catch (e) { if (signal.aborted) throw e; }
+    if (!r.ok) throw new Error(typeof body?.detail === "string" ? body.detail : `Request failed (${r.status}). Please try again.`);
+    if (!body) throw new Error("The server returned an empty response. Please try again.");
+    return body;
+  } catch (error) {
+    if (opts?.signal?.aborted) throw error;
+    if (timeout.signal.aborted) throw new Error("The request took too long. Check your connection and try again.");
+    if (error instanceof TypeError) throw new Error("Couldn’t reach the server. Check your connection and try again.");
+    throw error;
+  } finally { clearTimeout(timer); }
 }
 
 export const api = {

@@ -17,9 +17,10 @@ def test_all_supplied_files_accounted_for():
         assert 0<s['distance_km']<200
         assert s['quality']['accepted_rows']+s['quality']['rejected_rows']==s['quality']['input_rows']
 
-def test_raw_import_is_reproducible():
-    key,name,csv,kml=FILES[0]
-    assert load(ROOT/'source'/csv,ROOT/'source'/kml,key,name)==catalogue()[0]
+@pytest.mark.parametrize('key,name,csv,kml', FILES)
+def test_raw_import_is_reproducible(key,name,csv,kml):
+    expected=next(s for s in catalogue() if s['id']==key)
+    assert load(ROOT/'source'/csv,ROOT/'source'/kml,key,name)==expected
 
 def test_quality_gaps_are_not_connected():
     survey=next(s for s in catalogue() if s['id']=='nh53')
