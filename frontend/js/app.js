@@ -1,4 +1,4 @@
-import { NavigationUI } from "./navigation-ui.js?v=live-location";
+import { RoutePreview } from "./navigation-ui.js?v=preview-only";
 import { PlannerLocation } from "./planner-location.js";
 import { api, photon } from "./api.js";
 import { breakdownBar } from "./charts.js";
@@ -73,17 +73,7 @@ async function init() {
     center: city.center, zoom: city.zoom, theme: state.theme,
     onMapClick: onMapClick, onPinDrag: onPinDrag, onRouteClick: (k) => select(k),
   });
-  navigation = new NavigationUI({
-    map, toast,
-    reroute: (trip, fix, signal) => api.route({origin:{lat:fix.lat,lon:fix.lon},destination:trip.destination,
-      mode:trip.result.mode,hour:nowHour(),safety_weight:trip.safety,max_detour:trip.detour,include_analysis:false},signal),
-    onRoute: (result, fix, selected) => {
-      state.result = result; state.selected = result.routes[selected] ? selected : "safest";
-      state.origin = {lat:fix.lat,lon:fix.lon,label:"Current location"};
-      $("#in-origin").value = state.origin.label; map.setPin("origin", state.origin);
-      renderResult(); drawResult(false); updateUrl();
-    },
-  });
+  navigation = new RoutePreview({ map, toast });
   plannerLocation = new PlannerLocation({
     geolocation:navigator.geolocation, permissions:navigator.permissions, secure:window.isSecureContext,
     onState:showPlannerLocation,
@@ -639,18 +629,16 @@ function renderResult() {
   const keys = res.comparison.same_route ? ["fastest"] : routeKeys();
   if (res.comparison.same_route) state.selected = "fastest";
   const sel = res.routes[state.selected];
-  $("#results").innerHTML = `<div class="navigation-start"><button id="btn-navigate" class="primary-btn">Follow my location</button><button id="btn-preview-route" class="text-btn">Preview route</button><p>Keep your selected ${esc(ROUTE_META[state.selected].name.toLowerCase())} route on the map and see your location as you move.</p></div>` + headline(res) + keys.map((k) => card(k, res)).join("") + `
+  $("#results").innerHTML = `<div class="navigation-start"><button id="btn-preview-route" class="primary-btn">Preview route</button><p>Explore your selected route with a moving preview.</p></div>` + headline(res) + keys.map((k) => card(k, res)).join("") + `
     <div class="tabs" role="tablist">
       ${["overview", "directions"].map((t) => `<button class="tab ${state.tab === t ? "on" : ""}" data-t="${t}" role="tab" aria-selected="${state.tab === t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}
     </div><div id="tab-body" role="tabpanel"></div><div class="trip-actions"><button class="text-btn" id="btn-save">Save trip</button><button class="text-btn" id="btn-share">Copy trip link</button></div>
     <p class="note">Safety and travel times are estimates, based on available road data. Conditions can change.</p>`;
-  const startNavigation = (preview) => {
+  $("#btn-preview-route").onclick = () => {
     if (state.pending) return toast("Please wait for the updated route.");
-    displaySurvey(null); resetSearch();
-    navigation.start({result:state.result,selected:state.selected,destination:{...state.destination},safety:state.safety,detour:state.detour},preview);
+    displaySurvey(null); resetSearch(); plannerLocation.cancel();
+    navigation.start({result:state.result,selected:state.selected,destination:{...state.destination}});
   };
-  $("#btn-navigate").onclick = () => startNavigation(false);
-  $("#btn-preview-route").onclick = () => startNavigation(true);
   $$(".route-card").forEach((c) => {
     c.onclick = () => select(c.dataset.k);
     c.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(c.dataset.k, true); } };

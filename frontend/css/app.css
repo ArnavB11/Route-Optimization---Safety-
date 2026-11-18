@@ -463,7 +463,7 @@ button:disabled { cursor: default; opacity: .6; }
 .locate-status summary { cursor:pointer; margin:10px 0; color:var(--accent-ink); }
 .locate-status label { display:block; margin-top:10px; }
 #locate-address { width:100%; min-width:0; padding:7px; border:1px solid var(--border); background:var(--surface); color:var(--ink); border-radius:7px; font-size:12px; }
-.navigation-start { display:grid; grid-template-columns:1fr auto; gap:8px; padding:0 0 14px; }
+.navigation-start { display:grid; grid-template-columns:1fr; gap:8px; padding:0 0 14px; }
 .navigation-start .primary-btn { padding:10px 16px; }
 .navigation-start .text-btn { font-size:12px; padding:10px 12px; }
 .navigation-start p { grid-column:1 / -1; color:var(--ink-2); font-size:12px; margin:2px 0 0; line-height:1.5; }
@@ -481,15 +481,6 @@ button:disabled { cursor: default; opacity: .6; }
 .nav-location svg { display:block; width:100%; height:100%; }
 .nav-location.approximate { color:#78828e; }
 body.navigating .panel, body.navigating .map-ctl, body.navigating .risk-legend, body.navigating .map-view-btn, body.navigating .survey-banner { display:none; }
-#nav-location-actions { margin-top:12px; font-size:12px; }
-#nav-location-actions summary { cursor:pointer; color:var(--accent-ink); }
-#nav-location-help { font-size:12px; line-height:1.6; color:var(--ink-2); margin:12px 0 9px; }
-.nav-location-buttons { display:flex; flex-wrap:wrap; gap:6px; }
-.nav-location-buttons button, .nav-location-buttons a { padding:9px 12px; font-size:12px; }
-.nav-location-buttons a { display:inline-flex; align-items:center; text-decoration:none; }
-.nav-location-buttons a[hidden] { display:none; }
-.nav-url-label { display:block; font-size:11px; color:var(--ink-2); margin-top:12px; }
-#nav-location-url { width:100%; min-width:0; margin:5px 0 0; padding:8px; font-size:12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink); }
 @media(max-width:760px) {
   .nav-bottom { left:12px; right:12px; width:auto; bottom:max(12px,env(safe-area-inset-bottom)); max-height:55dvh; padding:14px; }
   #nav-time { font-size:19px; }

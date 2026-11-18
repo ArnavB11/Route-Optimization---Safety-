@@ -10,7 +10,7 @@ SVNIT | Project supervisor: Prof. Shriniwas Arkatkar
 
 Our team's objective is **safety**. The app considers road layout, junction manoeuvres, crash history, estimated lighting and personal-security proxies. Time and distance help users judge whether a safer detour is practical. AQI and standalone traffic-efficiency optimisation belong to other teams and are outside this implementation.
 
-This is an academic route-planning prototype. It does not provide live traffic, live incident reporting, crime prediction or guaranteed background navigation. The map can follow your device location while the page stays open. Safety scores are model estimates, not measured crash probabilities or proof that a route is safe.
+This is an academic route-planning prototype. It does not provide live traffic, live incident reporting, crime prediction or live navigation. A simulated route preview animates an arrow along the selected route. Safety scores are model estimates, not measured crash probabilities or proof that a route is safe.
 
 ## Run with your existing Conda environment
 
@@ -60,13 +60,13 @@ This fallback is for local development. Use FastAPI for the normal application.
 
 A single card means both searches selected the same route for these settings. It does not establish that no safer route exists under every possible setting.
 
-## Navigate your selected route
+## Preview your selected route
 
-Choose a route, then **Follow my location**. Your route stays visible, and an arrow moves with your device location. Its direction uses device heading or meaningful measured movement; it stays steady when you stop. Recenter brings the map back after you explore. Confirmed off-route movement can request a new route with your safety preferences. **Stop tracking** releases location access and the screen wake lock. There is no voice guidance.
+Choose a route, then **Preview route**. An arrow moves along the selected route with estimated remaining distance and time. Drag the map to explore; **Recenter** follows the preview again. **End preview** returns to the route comparison.
 
-**Preview route** lets you try the same guidance with clearly labelled simulated positions. It does not request your location. Live navigation needs HTTPS or localhost and browser location permission; keep the page open and unlocked. Real-device on-road validation remains necessary before relying on the prototype.
+The preview is clearly labelled as simulated and never requests device location, browser permission or a screen wake lock. It does not track your journey or provide voice guidance.
 
-If location does not start, use **Retry location** and check browser/device location permission. Approximate desktop locations display an accuracy circle and keep route progress paused. If an embedded browser never shows its permission prompt, choose **Open in Microsoft Edge** on Windows, or **Copy trip link** and paste it into your regular browser. Allow location and choose **Follow my location** there. See [navigation setup, troubleshooting and testing](docs/NAVIGATION.md). No new packages or API keys are required.
+See [route preview and starting-point location](docs/NAVIGATION.md). No new packages or API keys are required.
 
 The starting-point **Use my location** button uses both precise and network location requests. Its status stays visible with retry/cancel controls. A precise reading sets the start; an approximate reading shows its uncertainty and requires **Use approximate location** before changing the start. Requests stop after 35 seconds if the browser never completes them. Existing start/destination entries remain intact on failure. Location access must still be enabled in the browser and operating system.
 
@@ -175,7 +175,7 @@ frontend/
   js/trip.js         Coordinate validation, route reasons and saved-trip helpers
   js/navigation.js   Route projection, progress, arrival and arrow heading
   js/location.js     Device location acquisition, freshness and recovery
-  js/navigation-ui.js  GPS lifecycle, rerouting and navigation controls
+  js/navigation-ui.js  Simulated route preview, map following and cleanup
   tests/             Node regression checks for pure trip helpers
 docs/
   METHODOLOGY.md      Detailed formulas and assumptions
@@ -258,7 +258,7 @@ The OSM, night-light and graph scripts accept region names `surat`, `ahmedabad`,
 - One-way roads are modelled, but comprehensive OSM turn restrictions, closures and vehicle-specific access rules are not implemented. Follow signs and verify routes before relying on them.
 - Points snap to the nearest graph node available to the travel mode, potentially some distance from the selected location. The API reports the offset and snapped coordinates. Footpaths outside the included road network may be missing.
 - Departure-time estimates do not update edge-by-edge as a trip progresses. There is no live traffic feed.
-- General intercity routing is not implemented. Foreground navigation supports GPS-based rerouting and a moving location arrow within the supported graphs. Ahmedabad and Gandhinagar are supported together because they share a graph.
+- General intercity routing is not implemented. The moving arrow is a simulated route preview. Ahmedabad and Gandhinagar are supported together because they share a graph.
 
 See [methodology](docs/METHODOLOGY.md), [simulation report](docs/VALIDATION.md), and [reference review](docs/REFERENCE_REVIEW.md).
 
